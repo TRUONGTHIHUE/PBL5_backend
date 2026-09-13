@@ -1,0 +1,5 @@
+# Bỏ qua các file ảnh và thư viện ảo Python khi push Git
+.venv/
+*.jpg
+*.zip
+*.db
