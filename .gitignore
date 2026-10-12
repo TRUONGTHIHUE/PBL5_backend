@@ -1,5 +1,8 @@
 # Bỏ qua các file ảnh và thư viện ảo Python khi push Git
 .venv/
+__pycache__/
+*.pyc
+Barcode Detection.v1i.yolov8/
 *.jpg
 *.zip
 *.db

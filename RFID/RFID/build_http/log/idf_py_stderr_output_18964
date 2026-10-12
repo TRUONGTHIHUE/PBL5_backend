@@ -1,0 +1,32 @@
+fatal: detected dubious ownership in repository at 'D:/ESPIDF/Espressif/frameworks/esp-idf-v5.4.4'
+'D:/ESPIDF/Espressif/frameworks/esp-idf-v5.4.4' is owned by:
+	HUETRUONG/HueTT (S-1-5-21-3168613547-487884311-4188772312-1001)
+but the current user is:
+	HUETRUONG/CodexSandboxOffline (S-1-5-21-3168613547-487884311-4188772312-1003)
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory D:/ESPIDF/Espressif/frameworks/esp-idf-v5.4.4
+fatal: detected dubious ownership in repository at 'D:/ESPIDF/Espressif/frameworks/esp-idf-v5.4.4'
+'D:/ESPIDF/Espressif/frameworks/esp-idf-v5.4.4' is owned by:
+	HUETRUONG/HueTT (S-1-5-21-3168613547-487884311-4188772312-1001)
+but the current user is:
+	HUETRUONG/CodexSandboxOffline (S-1-5-21-3168613547-487884311-4188772312-1003)
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory D:/ESPIDF/Espressif/frameworks/esp-idf-v5.4.4
+fatal: detected dubious ownership in repository at 'D:/ESPIDF/Espressif/frameworks/esp-idf-v5.4.4/components/openthread/openthread'
+'D:/ESPIDF/Espressif/frameworks/esp-idf-v5.4.4/components/openthread/openthread/.git' is owned by:
+	HUETRUONG/HueTT (S-1-5-21-3168613547-487884311-4188772312-1001)
+but the current user is:
+	HUETRUONG/CodexSandboxOffline (S-1-5-21-3168613547-487884311-4188772312-1003)
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory D:/ESPIDF/Espressif/frameworks/esp-idf-v5.4.4/components/openthread/openthread
+CMake Warning at D:/ESPIDF/Espressif/frameworks/esp-idf-v5.4.4/tools/cmake/gdbinit.cmake:52 (message):
+  Error while generating esp_rom gdbinit
+Call Stack (most recent call first):
+  D:/ESPIDF/Espressif/frameworks/esp-idf-v5.4.4/tools/cmake/project.cmake:356 (__generate_gdbinit)
+  D:/ESPIDF/Espressif/frameworks/esp-idf-v5.4.4/tools/cmake/project.cmake:941 (__project_info)
+  CMakeLists.txt:6 (project)
+
+

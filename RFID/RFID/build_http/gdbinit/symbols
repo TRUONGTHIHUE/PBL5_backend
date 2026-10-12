@@ -1,0 +1,9 @@
+
+
+# Load bootloader symbols
+set confirm off
+    add-symbol-file D:/NAM5/PBL5_backend/RFID/RFID/build_http/bootloader/bootloader.elf
+set confirm on
+
+# Load application symbols
+file D:/NAM5/PBL5_backend/RFID/RFID/build_http/RFID.elf
