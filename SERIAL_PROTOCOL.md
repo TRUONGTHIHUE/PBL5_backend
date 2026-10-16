@@ -39,7 +39,8 @@ ESP32 phát `type=status` với v/requestId/uid và status:
 | LOOKUP_FAILED | Python báo không tra được cấu hình |
 | LOOKUP_TIMEOUT | Không có phản hồi tương quan hợp lệ trong 60s |
 
-Status không chứa password/SSID; Python chỉ in SSID từ dữ liệu Firestore đã kiểm tra.
+Status từ firmware không chứa password/SSID. Theo yêu cầu bản demo, Python in storeId, SSID và password
+từ dữ liệu Firestore đã kiểm tra trước khi gửi store_config. Không lưu/chia sẻ log này công khai.
 Python chờ ACK 8s sau gửi, sau ACK chờ kết quả 35s (gồm dừng/khởi động Wi-Fi).
 Không coi FETCH SUCCESS hay CONFIG_RECEIVED là WIFI_CONNECTED.
 

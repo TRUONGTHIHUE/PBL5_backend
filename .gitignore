@@ -6,6 +6,7 @@ Barcode Detection.v1i.yolov8/
 *.jpg
 *.zip
 *.db
+*.log
 .env
 .env.*
 !.env.example

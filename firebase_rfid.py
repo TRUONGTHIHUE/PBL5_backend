@@ -123,19 +123,22 @@ class FirebaseClient:
 
 
 def show_store(uid, store):
-    print("\n========== RFID DETECTED ==========", flush=True)
-    for label, value in (("RFID UID", uid), ("STORE ID", store["storeId"]),
-                         ("DOCUMENT ID", store["documentId"]), ("STORE NAME", store["storeName"]),
-                         ("WIFI SSID", store["wifiSSID"]), ("WIFI PASSWORD", "[HIDDEN]"),
-                         ("DATA SOURCE", "Firebase Firestore"), ("FETCH STATUS", "SUCCESS")):
-        print(f"{label:13}: {value}")
-    print("===================================", flush=True)
+    # Intentional demo output. Never save/share this terminal output publicly.
+    print("\n========== THONG TIN CUA HANG ==========", flush=True)
+    for label, field in (("Store ID", "storeId"), ("Wi-Fi SSID", "wifiSSID"),
+                         ("Wi-Fi Password", "wifiPassword")):
+        print(f"{label:15}: {store[field]}")
+    print("========================================", flush=True)
+    print(f"RFID UID     : {uid}")
+    print(f"DOCUMENT ID  : {store['documentId']}")
+    print(f"STORE NAME   : {store['storeName']}")
+    print("DATA SOURCE  : Firebase Firestore\nFETCH STATUS : SUCCESS", flush=True)
 
 
 def display(client, uid):
     try:
         uid = normalize_uid(uid)
-        store = client.lookup(uid)
+        store = validate_store(client.lookup(uid))
         show_store(uid, store)
     except (ValueError, RuntimeError, requests.RequestException) as error:
         # requests exceptions can contain URLs; never print tokens or raw responses.
@@ -185,7 +188,7 @@ class SerialBridge:
             self.pending = {**base, "acked": False, "deadline": self.clock() + 55,
                             "state": "LOOKUP"}
             try:
-                store = self.client.lookup(uid)
+                store = validate_store(self.client.lookup(uid))
             except (ValueError, RuntimeError, requests.RequestException) as error:
                 # No exception bodies, document contents, credentials or raw serial are logged.
                 code = str(error).split(":", 1)[0] if isinstance(error, ValueError) else "FIREBASE_ERROR"
@@ -193,7 +196,13 @@ class SerialBridge:
                 code = code if code in allowed else "NETWORK_OR_FIREBASE_ERROR"
                 if isinstance(error, FirebaseError):
                     code = f"FIREBASE_HTTP_{error.status}"
-                print(f"RFID UID: {uid}\nFETCH STATUS: FAILED ({code}); kiểm tra dữ liệu, mạng hoặc quyền Firebase.", flush=True)
+                hint = {
+                    "NOT_FOUND": "Không tìm thấy thẻ trong các cửa hàng tài khoản được phép đọc.",
+                    "DUPLICATE_UID": "Có nhiều cửa hàng gắn cùng UID; cần sửa dữ liệu trùng.",
+                    "MISSING_FIELDS": "Bản ghi thiếu thông tin cửa hàng hoặc Wi-Fi.",
+                    "INVALID_CONFIG": "Thông tin cửa hàng hoặc SSID/mật khẩu Wi-Fi không hợp lệ.",
+                }.get(code, "Kiểm tra kết nối Internet, đăng nhập và quyền Firebase.")
+                print(f"RFID UID: {uid}\nFETCH STATUS: FAILED ({code})\n{hint}", flush=True)
                 self.send({**base, "type": "lookup_error"})
                 self.pending.update(deadline=self.clock() + 8, state="ERROR_REPLY")
                 return

@@ -2,7 +2,9 @@
 
 ## Đã chạy
 
-- 22 bài `python -m unittest -v test_firebase_rfid`: PASS. Dùng phản hồi Firebase và Serial giả lập.
+- 25 bài `python -m unittest -v test_firebase_rfid`: PASS. Dùng phản hồi Firebase và Serial giả lập,
+  bao gồm hiển thị password demo từ bản ghi trả về, chặn hiển thị/gửi credentials khi tra cứu lỗi hoặc dữ liệu thiếu.
+- Bản cập nhật hiển thị password chỉ đổi Python, kiểm thử và tài liệu; firmware giữ nguyên bản cross-build bên dưới.
 - Cross-build firmware ESP32 với ESP-IDF tag `v5.4.4`:
   `296b6eab9445fd720e71aecab961e2d3fbca9944`.
 - RC522 từ repository chính thức `abobija/esp-idf-rc522`, tag `4.0.1`, commit

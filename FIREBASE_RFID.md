@@ -10,7 +10,9 @@ Không thể dùng một tài khoản khách bất kỳ để tra mọi cửa h�
 Không dùng Admin key, không mở Rules công khai. Không thay Excel, barcode, YOLO, PHP/Render/CSV hoặc di chuyển dữ liệu.
 
 USB Serial truyền mật khẩu dạng rõ (JSON), KHÔNG mã hóa. Chỉ dùng thiết bị/máy tính tin cậy cho demo.
-Mật khẩu không in Terminal, không ghi file debug, không commit vào Git. ESP32 dùng WIFI_STORAGE_RAM.
+Bản demo này có chủ đích in wifiPassword từ Firebase trong Terminal Python sau khi tra cứu và kiểm tra dữ liệu thành công.
+Không chụp/chia sẻ màn hình chứa mật khẩu, không redirect output ra file hoặc đưa log lên GitHub. Chương trình không tự ghi file log.
+Mật khẩu tài khoản Firebase vẫn được nhập ẩn và không in ra. ESP32 dùng WIFI_STORAGE_RAM.
 Mạng cần là Wi-Fi 2.4 GHz tương thích ESP32. Chưa hỗ trợ captive portal hoặc WPA Enterprise.
 Mạng giả hoặc không trong vùng phủ sóng phải báo thất bại, không báo kết nối giả.
 Có thể gán cả ba cửa hàng cùng Wi-Fi thật tại trọ để thử; điều này chỉ chứng minh chọn đúng bản ghi, không chứng minh chuyển ba mạng khác nhau.
@@ -109,7 +111,20 @@ Sau đó chạy nhận thẻ:
 ```
 
 Đăng nhập, quét thẻ. Chương trình mở COM một lần. Không mở Serial Monitor song song. Ctrl+C để dừng.
-Thông tin cửa hàng từ Firebase được in, wifiPassword luôn [HIDDEN]. Trạng thái mong đợi theo thứ tự:
+Thông tin cửa hàng từ Firebase được in, bao gồm wifiPassword thật trong bản demo theo yêu cầu.
+Các dòng dưới là định dạng, không phải dữ liệu đã được xác minh hoặc giá trị cần hardcode:
+
+```text
+========== THONG TIN CUA HANG ==========
+Store ID       : <storeId lấy từ Firebase>
+Wi-Fi SSID     : <wifiSSID lấy từ Firebase>
+Wi-Fi Password : <wifiPassword lấy từ Firebase>
+========================================
+```
+
+Python tiếp tục gửi cùng cấu hình về ESP32 sau khi in. Không tìm thấy/thông tin thiếu hoặc không hợp lệ:
+chỉ báo lỗi và gửi lookup_error, không in khối thông tin thành công hoặc gửi cấu hình Wi-Fi.
+Trạng thái mong đợi theo thứ tự:
 
 ```text
 FETCH STATUS : SUCCESS
@@ -129,7 +144,7 @@ Hàm firmware firebase_bridge_connected_store() chỉ trả storeId khi kết n�
 | Bài | Thao tác | Kết quả cần kiểm chứng |
 |---|---|---|
 | 1 | flash monitor, quét thẻ | UID JSON đúng với UID thẻ; thoát monitor sau kiểm tra |
-| 2 | --uid UID_THAT | Tìm đúng documentId/storeId/tên/SSID, không lộ password |
+| 2 | --uid UID_THAT | Tìm đúng documentId/storeId/tên/SSID/password; xem tại máy, không chia sẻ log |
 | 3 | --port COMx, quét thẻ | CONFIG_RECEIVED từ ESP32; không coi lệnh Python gửi thành công là đã nhận |
 | 4 | SSID/password hợp lệ của mạng thật | WIFI_CONNECTED sau khi có IP |
 | 5 | Quét lần lượt ba thẻ, chờ xong mỗi lần | Ba bản ghi đúng; kiểm tra SSID từng bản ghi, không dựa vào bảng firmware |

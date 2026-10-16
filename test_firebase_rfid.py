@@ -122,7 +122,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(packet['wifiPassword'], self.store['wifiPassword'])
         self.assertTrue(sent.endswith(b'\n'))
         self.assertNotIn('WIFI_CONNECTED', self.output.getvalue())
-        self.assertNotIn(self.store['wifiPassword'], self.output.getvalue())
+        self.assertIn('Wi-Fi Password : ' + self.store['wifiPassword'], self.output.getvalue())
         self.status('CONFIG_RECEIVED')
         self.assertTrue(self.bridge.pending['acked'])
         self.status('WIFI_CONNECTED')
@@ -203,7 +203,39 @@ class ProtocolTests(unittest.TestCase):
             self.assertEqual(packet['wifiSSID'], records[uid]['wifiSSID'])
             self.bridge.handle({'v': 1, 'type': 'status', 'uid': uid,
                                 'requestId': request_id, 'status': 'WIFI_CONNECTED'})
-        self.assertNotIn(self.store['wifiPassword'], self.output.getvalue())
+        self.assertIn('Wi-Fi Password : ' + self.store['wifiPassword'], self.output.getvalue())
+
+    def test_missing_fields_does_not_print_or_send_credentials(self):
+        self.client.lookup.return_value = {**self.store, 'wifiSSID': None}
+        self.bridge.handle(self.scan)
+        output = self.output.getvalue()
+        self.assertIn('FETCH STATUS: FAILED (INVALID_CONFIG)', output)
+        self.assertNotIn('THONG TIN CUA HANG', output)
+        self.assertNotIn(self.store['wifiPassword'], output)
+        packet = json.loads(self.device.write.call_args.args[0][5:])
+        self.assertEqual(packet['type'], 'lookup_error')
+        self.assertNotIn('wifiPassword', packet)
+
+    def test_not_found_does_not_print_or_send_credentials(self):
+        self.client.lookup.side_effect = ValueError('NOT_FOUND: no matching store')
+        self.bridge.handle(self.scan)
+        output = self.output.getvalue()
+        self.assertIn('Không tìm thấy thẻ', output)
+        self.assertNotIn('THONG TIN CUA HANG', output)
+        packet = json.loads(self.device.write.call_args.args[0][5:])
+        self.assertEqual(packet['type'], 'lookup_error')
+        self.assertNotIn('wifiPassword', packet)
+
+    def test_display_uses_values_from_lookup(self):
+        self.client.lookup.return_value = {**self.store, 'storeId': 'another-store',
+                                          'wifiSSID': 'different-network',
+                                          'wifiPassword': 'different-demo-password'}
+        self.assertTrue(display(self.client, self.uid))
+        output = self.output.getvalue()
+        self.assertIn('Store ID       : another-store', output)
+        self.assertIn('Wi-Fi SSID     : different-network', output)
+        self.assertIn('Wi-Fi Password : different-demo-password', output)
+        self.assertNotIn(self.store['wifiPassword'], output)
 
 
 if __name__ == '__main__':
