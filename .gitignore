@@ -6,3 +6,11 @@ Barcode Detection.v1i.yolov8/
 *.jpg
 *.zip
 *.db
+.env
+.env.*
+!.env.example
+firebase/.firebase/
+firebase/node_modules/
+RFID/RFID/build_firebase/
+RFID/RFID/sdkconfig
+RFID/RFID/sdkconfig.old

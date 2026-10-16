@@ -26,9 +26,9 @@ static const char *TAG = "PBL5_RFID";
  * WIFI
  * ========================================================= */
 
-#define WIFI_SSID       "Nam Giang Hotel"
+#define WIFI_SSID       CONFIG_PBL5_LEGACY_WIFI_SSID
 
-#define WIFI_PASSWORD   "123456789"
+#define WIFI_PASSWORD   CONFIG_PBL5_LEGACY_WIFI_PASSWORD
 
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
@@ -221,7 +221,7 @@ static void wifi_event_handler(
  * KHOI TAO WIFI
  * ========================================================= */
 
-static void wifi_init_sta(void)
+static void __attribute__((unused)) wifi_init_sta(void)
 {
     wifi_event_group =
         xEventGroupCreate();
@@ -567,7 +567,7 @@ static esp_err_t store_get_handler(httpd_req_t *request)
 }
 
 
-static httpd_handle_t start_webserver(void)
+static httpd_handle_t __attribute__((unused)) start_webserver(void)
 {
     httpd_handle_t server = NULL;
 
@@ -681,6 +681,12 @@ static void on_picc_state_changed(
             /*
              * Tim cau hinh cua hang tu UID
              */
+#if CONFIG_PBL5_FIREBASE_USB
+            /* UID comes from the card; store metadata is resolved by Python. */
+            printf("RFID_UID:%s\n", uid);
+            fflush(stdout);
+            return;
+#endif
             current_store_config =
                 find_store_config(uid);
 
@@ -799,7 +805,7 @@ void app_main(void)
 
     ESP_LOGI(
         TAG,
-        "PBL5 RFID + WIFI"
+        "PBL5 RFID (transport configured in menuconfig)"
     );
 
     ESP_LOGI(
@@ -834,6 +840,7 @@ void app_main(void)
      * KHOI TAO WIFI
      * ===================================================== */
 
+#if !CONFIG_PBL5_FIREBASE_USB
     ESP_LOGI(
         TAG,
         "Khoi dong Wi-Fi..."
@@ -847,6 +854,7 @@ void app_main(void)
      * ===================================================== */
 
     start_webserver();
+#endif
 
 
     /* =====================================================

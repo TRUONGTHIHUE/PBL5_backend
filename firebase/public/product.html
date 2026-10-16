@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Quản lý sản phẩm</title>
+
+    <link
+        rel="stylesheet"
+        href="style.css"
+    >
+
+    <!-- Thư viện đọc Excel -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+</head>
+
+
+<body>
+
+<div class="dashboard">
+
+
+    <!-- =====================================================
+         TOP BAR
+    ====================================================== -->
+
+    <header class="topbar">
+
+        <div class="brand">
+            STORE RFID
+        </div>
+
+
+        <div>
+
+            <span id="storeNameDisplay">
+                Đang tải...
+            </span>
+
+            <button
+                class="logout"
+                id="logoutButton"
+            >
+                Đăng xuất
+            </button>
+
+        </div>
+
+    </header>
+
+
+
+    <!-- =====================================================
+         MAIN
+    ====================================================== -->
+
+    <main class="dashboard-container">
+
+
+        <div class="dashboard-header">
+
+            <div>
+
+                <h1>
+                    Quản lý sản phẩm
+                </h1>
+
+                <p>
+                    Quản lý thông tin sản phẩm
+                    của cửa hàng
+                </p>
+
+            </div>
+
+        </div>
+
+
+
+        <!-- =================================================
+             THÔNG TIN CỬA HÀNG
+        ================================================== -->
+
+        <section class="store-controls"><label for="storeSelect">Chọn cửa hàng</label> <select id="storeSelect" disabled><option>Đang tải...</option></select><p id="accountEmail"></p>
+<details id="createStorePanel"><summary>Thêm cửa hàng</summary><form id="createStoreForm" class="store-form">
+<label>Tên cửa hàng<input name="storeName" required maxlength="150"></label><label>UID thẻ RFID<input name="rfidId" required maxlength="40" autocomplete="off" spellcheck="false" placeholder="CD 4B 1E 03"></label><label>Tên Wi-Fi<input name="wifiSSID" required maxlength="100"></label><label>Mật khẩu Wi-Fi<input name="wifiPassword" type="password" maxlength="200" autocomplete="off"></label><button class="main-button" id="createStoreButton">Lưu cửa hàng mới</button></form></details></section><div class="info-grid">
+
+
+            <div class="info-card">
+
+                <h4>
+                    STORE ID
+                </h4>
+
+                <strong id="storeId">
+                    Đang tải...
+                </strong>
+
+            </div>
+
+
+            <div class="info-card">
+
+                <h4>
+                    RFID ID
+                </h4>
+
+                <strong id="rfidId">
+                    Đang tải...
+                </strong>
+
+            </div>
+
+
+            <div class="info-card">
+
+                <h4>
+                    Wi-Fi
+                </h4>
+
+                <strong id="wifiName">
+                    Đang tải...
+                </strong>
+
+            </div>
+
+
+            <div class="info-card">
+
+                <h4>
+                    Số sản phẩm
+                </h4>
+
+                <strong id="productCount">
+                    0
+                </strong>
+
+            </div>
+
+
+        </div>
+
+
+
+        <!-- =================================================
+             DANH SÁCH SẢN PHẨM
+        ================================================== -->
+
+        <section class="product-section">
+
+
+            <div class="product-toolbar">
+
+                <div>
+
+                    <h2>
+                        Danh sách sản phẩm
+                    </h2>
+
+                    <p>
+                        Upload dữ liệu từ file Excel
+                    </p>
+
+                </div>
+
+
+                <div>
+
+                    <label
+                        for="excelFile"
+                        class="upload-button"
+                    >
+                        + Upload Excel
+                    </label>
+
+                    <input
+                        type="file"
+                        id="excelFile"
+                        accept=".xlsx,.xls,.csv"
+                    >
+
+                </div>
+
+            </div>
+
+
+
+            <!-- =================================================
+                 BẢNG SẢN PHẨM
+            ================================================== -->
+
+            <div class="table-wrapper">
+
+                <table class="product-table">
+
+                    <thead>
+
+                        <tr>
+
+                            <th>
+                                STT
+                            </th>
+
+                            <th>
+                                Tên sản phẩm
+                            </th>
+
+                            <th>Barcode</th>
+                            <th>
+                                Ngày nhập
+                            </th>
+
+                            <th>
+                                Thời gian sử dụng
+                            </th>
+
+                            <th>
+                                Giá bán
+                            </th>
+
+                        </tr>
+
+                    </thead>
+
+
+                    <tbody id="productTableBody">
+
+                        <tr>
+
+                            <td
+                                colspan="6"
+                                style="text-align:center"
+                            >
+                                Chưa có sản phẩm
+                            </td>
+
+                        </tr>
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+
+        </section>
+
+
+    </main>
+
+</div>
+
+
+
+<!-- =====================================================
+     FIREBASE + JAVASCRIPT
+===================================================== -->
+
+<script type="module" src="products.js"></script>
+</body></html>
