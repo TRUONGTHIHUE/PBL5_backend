@@ -17,6 +17,7 @@
 #include "rc522.h"
 #include "driver/rc522_spi.h"
 #include "rc522_picc.h"
+#include "firebase_bridge.h"
 
 
 static const char *TAG = "PBL5_RFID";
@@ -682,9 +683,7 @@ static void on_picc_state_changed(
              * Tim cau hinh cua hang tu UID
              */
 #if CONFIG_PBL5_FIREBASE_USB
-            /* UID comes from the card; store metadata is resolved by Python. */
-            printf("RFID_UID:%s\n", uid);
-            fflush(stdout);
+            firebase_bridge_scan(uid);
             return;
 #endif
             current_store_config =
@@ -834,6 +833,10 @@ void app_main(void)
     }
 
     ESP_ERROR_CHECK(ret);
+
+#if CONFIG_PBL5_FIREBASE_USB
+    ESP_ERROR_CHECK(firebase_bridge_init());
+#endif
 
 
     /* =====================================================

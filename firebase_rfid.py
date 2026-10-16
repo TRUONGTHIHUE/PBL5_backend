@@ -1,11 +1,67 @@
-"""Read ESP32 serial events and query owner-scoped Firestore (no Render)."""
+"""RFID USB bridge: authenticated Firestore lookup and real ESP32 Wi-Fi status."""
 import argparse
 import getpass
+import json
 import os
 import re
 import time
 
 import requests
+
+PREFIX = b"PBL5:"
+FRAME_LIMIT = 2048
+FINAL_STATUSES = {"WIFI_CONNECTED", "WIFI_FAILED", "WIFI_TIMEOUT", "WIFI_STOP_FAILED",
+                  "INVALID_CONFIG", "LOOKUP_FAILED", "LOOKUP_TIMEOUT"}
+
+
+class FirebaseError(RuntimeError):
+    def __init__(self, status):
+        self.status = int(status)
+        super().__init__(f"Firebase HTTP {self.status}; kiểm tra đăng nhập, Rules và mạng")
+
+
+def text_bytes(value, field, minimum, maximum):
+    if not isinstance(value, str) or not minimum <= len(value.encode("utf-8")) <= maximum:
+        raise ValueError(f"INVALID_CONFIG: {field} phải dài {minimum}–{maximum} byte UTF-8")
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise ValueError(f"INVALID_CONFIG: {field} chứa ký tự điều khiển")
+    return value
+
+
+def validate_store(store):
+    for field, maximum in (("storeId", 128), ("storeName", 600), ("wifiSSID", 32)):
+        text_bytes(store.get(field), field, 1, maximum)
+    password = text_bytes(store.get("wifiPassword"), "wifiPassword", 0, 64)
+    length = len(password.encode("utf-8"))
+    if length and not (8 <= length <= 63 or re.fullmatch(r"[0-9A-Fa-f]{64}", password)):
+        raise ValueError("INVALID_CONFIG: mật khẩu Wi-Fi cần 8–63 byte hoặc 64 ký tự hex")
+    return store
+
+
+class LineDecoder:
+    """Keep partial packets; drain oversized frames through the next newline."""
+    def __init__(self):
+        self.buffer = bytearray()
+        self.discard = False
+
+    def feed(self, data):
+        messages = []
+        for byte in data:
+            if byte == 10:
+                if not self.discard and self.buffer.startswith(PREFIX):
+                    try:
+                        message = json.loads(self.buffer[len(PREFIX):].decode("utf-8"))
+                        if isinstance(message, dict) and type(message.get("v")) is int and message["v"] == 1:
+                            messages.append(message)
+                    except (ValueError, UnicodeError):
+                        pass
+                self.buffer.clear()
+                self.discard = False
+            elif byte == 0 or len(self.buffer) >= FRAME_LIMIT:
+                self.discard = True
+            elif not self.discard:
+                self.buffer.append(byte)
+        return messages
 
 
 def normalize_uid(value):
@@ -29,7 +85,7 @@ class FirebaseClient:
         response = requests.post(url, timeout=20, **kwargs)
         if not response.ok:
             # Do not expose request bodies, tokens, passwords or response documents.
-            raise RuntimeError(f"Firebase HTTP {response.status_code}; kiểm tra đăng nhập, Rules và mạng")
+            raise FirebaseError(response.status_code)
         return response.json()
 
     def _tokens(self, token, refresh, seconds):
@@ -57,31 +113,114 @@ class FirebaseClient:
         if len(docs) != 1:
             raise ValueError("DUPLICATE_UID: có nhiều cửa hàng cùng UID; cần sửa dữ liệu")
         fields = docs[0].get("fields", {})
-        result = {k: fields.get(k, {}).get("stringValue", "")
-                  for k in ("storeId", "storeName", "wifiSSID", "rfidId")}
-        if any(not result[k].strip() for k in ("storeId", "storeName", "wifiSSID")):
-            raise ValueError("MISSING_FIELDS: thiếu storeId, storeName hoặc wifiSSID")
+        result = {k: fields.get(k, {}).get("stringValue")
+                  for k in ("storeId", "storeName", "wifiSSID", "rfidId", "wifiPassword")}
+        if any(not isinstance(result[k], str) or not result[k].strip()
+               for k in ("storeId", "storeName", "wifiSSID")) or not isinstance(result["wifiPassword"], str):
+            raise ValueError("MISSING_FIELDS: thiếu storeId, storeName, wifiSSID hoặc wifiPassword")
         result["documentId"] = docs[0]["name"].rsplit("/", 1)[-1]
-        return result
+        return validate_store(result)
+
+
+def show_store(uid, store):
+    print("\n========== RFID DETECTED ==========", flush=True)
+    for label, value in (("RFID UID", uid), ("STORE ID", store["storeId"]),
+                         ("DOCUMENT ID", store["documentId"]), ("STORE NAME", store["storeName"]),
+                         ("WIFI SSID", store["wifiSSID"]), ("WIFI PASSWORD", "[HIDDEN]"),
+                         ("DATA SOURCE", "Firebase Firestore"), ("FETCH STATUS", "SUCCESS")):
+        print(f"{label:13}: {value}")
+    print("===================================", flush=True)
 
 
 def display(client, uid):
     try:
         uid = normalize_uid(uid)
         store = client.lookup(uid)
-        print("\n========== RFID DETECTED ==========", flush=True)
-        for label, value in (("RFID UID", uid), ("STORE ID", store["storeId"]),
-                             ("DOCUMENT ID", store["documentId"]), ("STORE NAME", store["storeName"]),
-                             ("WIFI SSID", store["wifiSSID"]), ("DATA SOURCE", "Firebase Firestore"),
-                             ("FETCH STATUS", "SUCCESS")):
-            print(f"{label:13}: {value}")
-        print("===================================", flush=True)
+        show_store(uid, store)
     except (ValueError, RuntimeError, requests.RequestException) as error:
         # requests exceptions can contain URLs; never print tokens or raw responses.
         detail = str(error) if isinstance(error, (ValueError, RuntimeError)) else "NETWORK_ERROR: không kết nối được Firebase"
         print(f"RFID UID: {uid}\nFETCH STATUS: FAILED\n{detail}", flush=True)
         return False
     return True
+
+
+class SerialBridge:
+    def __init__(self, client, device, clock=time.monotonic):
+        self.client, self.device, self.clock = client, device, clock
+        self.pending = None
+
+    def send(self, message):
+        frame = PREFIX + json.dumps({"v": 1, **message}, ensure_ascii=False,
+                                    separators=(",", ":")).encode("utf-8") + b"\n"
+        if len(frame) - 1 > FRAME_LIMIT:
+            raise ValueError("FRAME_TOO_LARGE: bản tin vượt giới hạn Serial")
+        if self.device.write(frame) != len(frame):
+            raise OSError("Serial short write")
+
+    def handle(self, message):
+        kind = message.get("type")
+        if kind == "ready":
+            self.pending = None
+            print("ESP32 READY; nếu đang xử lý, yêu cầu trước đã hủy do reset.", flush=True)
+            return
+        if kind == "busy":
+            print("ESP32 đang xử lý thẻ trước. Chờ kết quả, lấy thẻ ra rồi quét lại.", flush=True)
+            return
+        if kind == "scan":
+            request_id, uid = message.get("requestId"), message.get("uid")
+            if not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-f]{8}-[0-9]{1,10}", request_id):
+                return
+            try:
+                canonical = normalize_uid(uid) if isinstance(uid, str) else None
+                if canonical != uid:
+                    raise ValueError("INVALID_UID")
+            except ValueError:
+                print("Bỏ qua bản tin UID không hợp lệ.", flush=True)
+                return
+            if self.pending:
+                print("Bỏ qua scan mới khi chưa có kết quả; hãy chờ hoặc reset ESP32.", flush=True)
+                return
+            base = {"requestId": request_id, "uid": uid}
+            self.pending = {**base, "acked": False, "deadline": self.clock() + 55,
+                            "state": "LOOKUP"}
+            try:
+                store = self.client.lookup(uid)
+            except (ValueError, RuntimeError, requests.RequestException) as error:
+                # No exception bodies, document contents, credentials or raw serial are logged.
+                code = str(error).split(":", 1)[0] if isinstance(error, ValueError) else "FIREBASE_ERROR"
+                allowed = {"NOT_FOUND", "DUPLICATE_UID", "MISSING_FIELDS", "INVALID_CONFIG"}
+                code = code if code in allowed else "NETWORK_OR_FIREBASE_ERROR"
+                if isinstance(error, FirebaseError):
+                    code = f"FIREBASE_HTTP_{error.status}"
+                print(f"RFID UID: {uid}\nFETCH STATUS: FAILED ({code}); kiểm tra dữ liệu, mạng hoặc quyền Firebase.", flush=True)
+                self.send({**base, "type": "lookup_error"})
+                self.pending.update(deadline=self.clock() + 8, state="ERROR_REPLY")
+                return
+            show_store(uid, store)
+            self.send({**base, "type": "store_config", **{
+                field: store[field] for field in ("storeId", "storeName", "wifiSSID", "wifiPassword")}})
+            self.pending.update(deadline=self.clock() + 8, state="WAIT_ACK")
+            print("Đã gửi cấu hình qua USB. Chưa xác nhận ESP32 nhận hoặc kết nối Wi-Fi.", flush=True)
+            return
+        if kind != "status" or not self.pending:
+            return
+        if any(message.get(key) != self.pending[key] for key in ("requestId", "uid")):
+            return  # A previous scan/session must not change the current result.
+        status = message.get("status")
+        if status not in FINAL_STATUSES | {"CONFIG_RECEIVED", "WIFI_CONNECTING"}:
+            return
+        print("ESP32 STATUS : " + status, flush=True)
+        if status in FINAL_STATUSES:
+            self.pending = None
+        elif status == "CONFIG_RECEIVED":
+            self.pending.update(acked=True, deadline=self.clock() + 35, state="WAIT_WIFI")
+
+    def tick(self):
+        if self.pending and self.clock() >= self.pending["deadline"]:
+            status = "ESP32_RESULT_TIMEOUT" if self.pending["acked"] else "ESP32_ACK_TIMEOUT"
+            print(status + ": chưa xác nhận thành công; kiểm tra firmware/COM rồi quét lại.", flush=True)
+            self.pending = None
 
 
 def main():
@@ -105,16 +244,18 @@ def main():
         if args.uid:
             return 0 if display(client, args.uid) else 1
         import serial
-        with serial.Serial(args.port, args.baud, timeout=1) as device:
+        with serial.Serial(args.port, args.baud, timeout=0.2, write_timeout=2) as device:
             print("Đã đăng nhập. Đang chờ quét thẻ...", flush=True)
+            decoder = LineDecoder()
+            bridge = SerialBridge(client, device)
             while True:
-                line = device.readline().decode("utf-8", errors="replace").strip()
-                if line.startswith("RFID_UID:"):
-                    display(client, line.removeprefix("RFID_UID:"))
+                for message in decoder.feed(device.read(256)):
+                    bridge.handle(message)
+                bridge.tick()
     except KeyboardInterrupt:
         return 0
-    except (RuntimeError, requests.RequestException):
-        print("Không đăng nhập được Firebase. Kiểm tra tài khoản, API key và kết nối.")
+    except (RuntimeError, ValueError, requests.RequestException):
+        print("Lỗi Firebase/dữ liệu. Kiểm tra tài khoản, API key, trường dữ liệu và kết nối.")
         return 1
     except OSError:
         print("Không mở/đọc được cổng USB. Kiểm tra COM và đóng ESP-IDF monitor.")

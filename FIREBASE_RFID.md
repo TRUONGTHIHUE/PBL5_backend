@@ -1,113 +1,168 @@
-# Demo RFID → Firebase → Terminal Python
+# RFID → Python/Firebase → ESP32 kết nối Wi-Fi
 
-Website Firebase từ ZIP đã được tích hợp tại `firebase/` trong repository này.
-Các file giao diện được sửa là `firebase/public/products.js` và `firebase/public/product.html`.
-Khi deploy, mở PowerShell tại `PBL5_backend/firebase/` (nơi có firebase.json).
-Mã firmware và Python vẫn nằm ở các đường dẫn bên dưới. Không cần tải ZIP hoặc tạo lại từng file khi dùng Git.
+## Phạm vi và giới hạn
 
-Luồng mới: RC522 → ESP32 → USB serial → Python đăng nhập Firebase Authentication → Firestore stores.
-Render không tham gia luồng RFID này. Đây là demo cần USB, KHÔNG phải ESP32 kết nối trực tiếp Firebase qua Wi-Fi.
-PBL5_render_api được giữ để các chức năng PHP/CSV và mã vạch cũ tiếp tục dùng. Chưa chuyển sản phẩm sang Firebase.
+Luồng: RC522 → ESP32 đọc UID → USB Serial → Python đăng nhập Firebase → tra Firestore → USB trả cấu hình → ESP32 kết nối Wi-Fi cửa hàng.
+Máy tính cần Internet riêng để tra Firebase trước; không phụ thuộc ESP32 đã có Wi-Fi hay chưa.
+Bản này có máy tính làm trung gian; không ghi SSID/password vào thẻ và không phải ESP32 tự truy vấn Firebase.
+Python dùng Firebase Authentication email/password và Rules hiện có: chỉ tìm cửa hàng thuộc ownerUid của tài khoản đăng nhập.
+Không thể dùng một tài khoản khách bất kỳ để tra mọi cửa hàng. Chưa triển khai phân quyền người mua cho sản phẩm thật.
+Không dùng Admin key, không mở Rules công khai. Không thay Excel, barcode, YOLO, PHP/Render/CSV hoặc di chuyển dữ liệu.
 
-## 1. Chuẩn bị dữ liệu trên Firebase Console
+USB Serial truyền mật khẩu dạng rõ (JSON), KHÔNG mã hóa. Chỉ dùng thiết bị/máy tính tin cậy cho demo.
+Mật khẩu không in Terminal, không ghi file debug, không commit vào Git. ESP32 dùng WIFI_STORAGE_RAM.
+Mạng cần là Wi-Fi 2.4 GHz tương thích ESP32. Chưa hỗ trợ captive portal hoặc WPA Enterprise.
+Mạng giả hoặc không trong vùng phủ sóng phải báo thất bại, không báo kết nối giả.
+Có thể gán cả ba cửa hàng cùng Wi-Fi thật tại trọ để thử; điều này chỉ chứng minh chọn đúng bản ghi, không chứng minh chuyển ba mạng khác nhau.
 
-Không tạo lại tài liệu hoặc đổi ID ngẫu nhiên. Với mỗi cửa hàng, sửa `rfidId` đúng thẻ:
+## File nguồn
 
-| Cửa hàng demo | rfidId |
-|---|---|
-| STORE01 | CD 4B 1E 03 |
-| STORE02 | F0 78 0E 04 |
-| STORE03 | C7 9A 0C 03 |
+- `RFID/RFID/main/main.c`: giữ GPIO và RC522; gọi bridge khi đọc được UID.
+- `RFID/RFID/main/firebase_bridge.c`, `.h`: Serial hai chiều, chống phản hồi cũ và kết nối Wi-Fi.
+- `RFID/RFID/main/Kconfig.projbuild`, `CMakeLists.txt`: bật chế độ bridge và biên dịch module.
+- `firebase_rfid.py`: đăng nhập/refresh token, query ownerUid+rfidId, gửi cấu hình, chờ trạng thái.
+- `test_firebase_rfid.py`: kiểm thử Firebase giả lập và giao thức Python.
+- `SERIAL_PROTOCOL.md`: định dạng bản tin và timeout.
+- `firebase/`: website từ ZIP trước đó. Không sửa website, Excel hoặc Rules ở bước Serial hai chiều này.
 
-Mỗi tài liệu cần các trường string: ownerUid, rfidId, storeId, storeName, wifiSSID.
-ownerUid phải bằng UID tài khoản Firebase Authentication sẽ đăng nhập trong Python.
-storeId có thể giữ ID ngẫu nhiên hiện tại. Không thay bằng mã STORE001 của firmware.
-Tên cửa hàng ở bảng chỉ là tên demo, không phải dữ liệu đọc từ thẻ.
-Giữ Rules hiện có, không mở read/write công khai. Không cần service-account key.
-Python chỉ truy vấn cửa hàng thuộc tài khoản đăng nhập. UID phải lưu đúng dạng có khoảng trắng và chữ hoa.
-Website chặn UID trùng trong tài khoản ở mức form; chưa có ràng buộc duy nhất nguyên tử phía server.
+Các file đầy đủ nằm trên nhánh GitHub `firebase-rfid-usb`; không cần ghép các đoạn code trong chat.
 
-## 2. Nạp firmware — Terminal ESP-IDF 5.4.4
+## 1. Cập nhật code — PowerShell tại thư mục repository
 
-Chép main.c và Kconfig.projbuild trong gói vào PBL5_backend/RFID/RFID/main/.
-Giữ nguyên CMakeLists.txt, thư viện RC522 và các file khác.
-Mở thư mục PBL5_backend/RFID/RFID trong VS Code với ESP-IDF 5.4.4 đã cấu hình.
-Dùng thư mục build mới vì build_http trong repo có đường dẫn từ máy khác:
+Nếu đã ở nhánh firebase-rfid-usb và không có thay đổi cục bộ:
 
 ```powershell
+git status
+git pull --ff-only origin firebase-rfid-usb
+```
+
+Nếu Git báo xung đột/thay đổi cục bộ, dừng và giữ các file của bạn; không reset/clean để bỏ dữ liệu.
+Có thể clone riêng từ thư mục cha nếu chưa có bản mới:
+
+```powershell
+git clone --branch firebase-rfid-usb https://github.com/TRUONGTHIHUE/PBL5_backend.git PBL5_backend_firebase
+```
+
+## 2. Dữ liệu Firestore
+
+Giữ collection `stores` và các subcollection `products`. Đường dẫn sản phẩm dùng ID TÀI LIỆU: stores/{documentId}/products/..., không suy ra ID đó từ UID hoặc tên cửa hàng.
+Mỗi tài liệu cần trường string: ownerUid, rfidId, storeId, storeName, wifiSSID, wifiPassword.
+`storeId` giữ ID ngẫu nhiên hiện tại được; Python in cả documentId và storeId, ESP32 giữ storeId để dùng sau.
+`ownerUid` đúng UID tài khoản đăng nhập. UID thẻ chuẩn hóa chữ hoa, khoảng trắng:
+
+| Thẻ thử | rfidId |
+|---|---|
+| 1 | CD 4B 1E 03 |
+| 2 | F0 78 0E 04 |
+| 3 | C7 9A 0C 03 |
+
+Đây là UID thử từ firmware cũ; đối chiếu lại UID của thẻ thật, không mặc định thẻ bạn đang cầm có UID này.
+Không lưu email vào rfidId. Không dùng một UID cho nhiều cửa hàng trong cùng tài khoản.
+SSID 1–32 byte UTF-8; password 8–63 byte, hoặc 64 ký tự hex. wifiPassword chuỗi rỗng chỉ dùng khi mạng thật là mạng mở.
+Thiếu trường password khác với chuỗi rỗng; thiếu phải báo MISSING_FIELDS. Không đưa giá trị thật lên GitHub hoặc ảnh log.
+
+## 3. Build/nạp — Terminal ESP-IDF 5.4.4
+
+Từ thư mục gốc repository:
+
+```powershell
+cd RFID\RFID
 idf.py -B build_firebase menuconfig
 ```
 
-Trong `PBL5 RFID transport`, bật `Send RFID over USB to the Python Firebase client` (mặc định bật), lưu cấu hình.
+PBL5 RFID transport → bật `RFID USB bridge: Firebase lookup and store Wi-Fi connection`.
+Giữ console mặc định UART0, 115200 baud trên board ESP32 thường có USB-UART; bản này không hỗ trợ console USB-JTAG/custom UART.
+Hai mục Wi-Fi legacy để trống. SSID/password thật sẽ lấy từ Firestore, không nhập vào firmware.
+Lưu, thoát:
 
 ```powershell
 idf.py -B build_firebase build
 idf.py -B build_firebase -p COM5 flash monitor
 ```
 
-Thay COM5 bằng cổng thật. Thử quét thẻ: cần có dòng `RFID_UID:CD 4B 1E 03` tương ứng thẻ.
-Nếu build lỗi, gửi phần lỗi đầu tiên và khoảng 20 dòng xung quanh; chưa coi firmware đã đạt nếu chỉ tải file.
-Thoát monitor bằng Ctrl+] trước khi chạy Python: một cổng COM không mở cùng lúc ở hai terminal.
-Chân giữ nguyên: MISO19, MOSI23, SCLK18, SS5, RST22. Không cần Wi-Fi ESP32 ở chế độ USB.
-Không in hoặc truyền mật khẩu Wi-Fi. Cấu hình Wi-Fi cũ đã bỏ khỏi mã nguồn và chuyển sang menuconfig cho chế độ Render cũ; không commit sdkconfig chứa thông tin thật.
+Thay COM5 bằng cổng thật. Không dùng build_http cũ. GPIO giữ nguyên MISO19, MOSI23, SCK18, SS5, RST22; nguồn RC522 3.3V.
+Quét thẻ và thấy bản tin `PBL5:` JSON có type=scan, uid thật và requestId. Firmware cũ chỉ in RFID_UID không tương thích bản này.
+Không chạy Python khi monitor còn mở. Ctrl+] để thoát monitor.
+Nếu đã thử quét khi chưa chạy Python, reset ESP32 rồi quét lại sau khi Python đăng nhập; mỗi yêu cầu tra cứu hết hạn sau 60 giây.
 
-## 3. Chạy Python — PowerShell thường, tại PBL5_backend
+## 4. Python — PowerShell tại thư mục gốc repository
 
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-firebase.txt
-$env:FIREBASE_WEB_API_KEY = "API_KEY_WEB_TRONG_public/firebase-config.js"
+$env:FIREBASE_WEB_API_KEY = "API_KEY_WEB_LAY_TU_firebase/public/firebase-config.js"
 ```
 
-Thay giá trị mẫu bằng apiKey Web của project. Không dùng private key/service-account key.
-Kiểm tra truy vấn thật trước, không cần cắm ESP32:
+Thay chữ mẫu bằng giá trị apiKey Web của project. Không dùng private key/service-account key.
+Kiểm tra Firestore riêng, không kết nối Wi-Fi ESP32:
 
 ```powershell
 .\.venv\Scripts\python.exe firebase_rfid.py --uid "CD 4B 1E 03"
 ```
 
-Nhập email tài khoản chủ cửa hàng, sau đó mật khẩu ở lời nhắc ẩn. Không đưa mật khẩu vào lệnh hoặc file.
-SUCCESS chỉ in sau khi Firestore trả đúng một cửa hàng của tài khoản, có đủ trường.
-Nếu thành công, chạy nhận thẻ:
+Nhập tài khoản chủ cửa hàng trên website, không phải tài khoản Google Console hay mật khẩu Wi-Fi. Mật khẩu đăng nhập được nhập ẩn.
+FETCH STATUS SUCCESS chỉ chứng minh truy vấn Firebase đúng; không chứng minh ESP32 đã nhận hoặc kết nối.
+Sau đó chạy nhận thẻ:
 
 ```powershell
 .\.venv\Scripts\python.exe firebase_rfid.py --port COM5
 ```
 
-Nhập lại đăng nhập. Quét từng thẻ và đối chiếu UID, storeId, documentId, storeName, wifiSSID với Firestore Console.
-DATA SOURCE = Firebase Firestore; FETCH STATUS = SUCCESS chỉ sau truy vấn thành công. Không in wifiPassword.
-Không chuyển Wi-Fi ESP32 và không chứng minh Wi-Fi cửa hàng hoạt động.
-Ctrl+C để dừng. Rút/cắm USB có thể reset ESP32, chương trình sẽ chờ dòng RFID_UID tiếp theo.
+Đăng nhập, quét thẻ. Chương trình mở COM một lần. Không mở Serial Monitor song song. Ctrl+C để dừng.
+Thông tin cửa hàng từ Firebase được in, wifiPassword luôn [HIDDEN]. Trạng thái mong đợi theo thứ tự:
 
-## 4. Website Firebase — PowerShell tại thư mục Firebase có firebase.json
-
-Thay đúng public/products.js và public/product.html bằng hai file trong gói. Bản sửa kiểm tra UID 4/7/10 byte,
-chuẩn hóa chữ hoa/dấu cách, chặn email, kiểm tra thẻ trùng trong tài khoản. Không tự sửa dữ liệu đã lưu.
-
-```powershell
-firebase deploy --only hosting --project quanlycuahang-afb59
+```text
+FETCH STATUS : SUCCESS
+ESP32 STATUS : CONFIG_RECEIVED
+ESP32 STATUS : WIFI_CONNECTING
+ESP32 STATUS : WIFI_CONNECTED
 ```
 
-Chạy lệnh này khi muốn xuất bản thay đổi trên website. Không cần đổi Rules nếu Rules trong ZIP đang được áp dụng.
-Sau deploy, Ctrl+F5 rồi thử nhập email vào ô RFID: phải báo lỗi và không tạo cửa hàng.
-Không tạo thêm cửa hàng dùng UID đã gán. Nếu cần đổi bản ghi cũ, sửa đúng rfidId trong Console trước.
+WIFI_CONNECTED chỉ phát khi ESP32 nhận IP. Có cấu hình nhưng chưa có IP thì chưa thành công.
+Khi đang xử lý, thẻ khác báo BUSY_RESCAN_AFTER_RESULT: chờ kết quả, lấy thẻ ra rồi quét lại. Không tự động chuyển thẻ giữa chừng.
+Khi đổi cửa hàng, ESP32 dừng kết nối cũ và thử cấu hình mới một lần; không tự quay lại Wi-Fi cũ hoặc retry vô hạn.
+Nếu mất mạng sau khi đã kết nối, ESP32 xóa mã cửa hàng đang có kết nối; cần quét lại để thử kết nối mới.
+Hàm firmware firebase_bridge_connected_store() chỉ trả storeId khi kết nối còn IP; chưa gửi request sản phẩm trong giai đoạn này.
 
-## 5. Chẩn đoán
+## 5. Bảy bài kiểm thử trên máy bạn
 
-- NOT_FOUND: kiểm tra rfidId đúng định dạng và ownerUid thuộc tài khoản đăng nhập.
-- DUPLICATE_UID: sửa dữ liệu trùng, không tự chọn cửa hàng bất kỳ.
-- MISSING_FIELDS: bổ sung trường được nêu trong lỗi trên tài liệu tương ứng.
-- HTTP 400 lúc đăng nhập: kiểm tra API key Web, email/password và Email/Password provider.
-- HTTP 403 lúc truy vấn: kiểm tra Rules thực tế, quyền ownerUid và cấu hình API/project.
-- Mạng: máy chạy Python cần HTTPS tới identitytoolkit.googleapis.com, securetoken.googleapis.com và firestore.googleapis.com.
-- Nếu Firebase báo cần index, dùng thông báo Firebase Console để tạo index phù hợp; không mở Rules để né lỗi.
-- COM bận: đóng ESP-IDF monitor hoặc phần mềm serial khác. Không thấy UID: xác minh firmware mới đã nạp và đúng COM/baud115200.
+| Bài | Thao tác | Kết quả cần kiểm chứng |
+|---|---|---|
+| 1 | flash monitor, quét thẻ | UID JSON đúng với UID thẻ; thoát monitor sau kiểm tra |
+| 2 | --uid UID_THAT | Tìm đúng documentId/storeId/tên/SSID, không lộ password |
+| 3 | --port COMx, quét thẻ | CONFIG_RECEIVED từ ESP32; không coi lệnh Python gửi thành công là đã nhận |
+| 4 | SSID/password hợp lệ của mạng thật | WIFI_CONNECTED sau khi có IP |
+| 5 | Quét lần lượt ba thẻ, chờ xong mỗi lần | Ba bản ghi đúng; kiểm tra SSID từng bản ghi, không dựa vào bảng firmware |
+| 6 | Thẻ chưa đăng ký, thiếu trường, sai password, ngắt Internet máy tính | NOT_FOUND/MISSING_FIELDS/INVALID_CONFIG hoặc lỗi mạng; ESP32 LOOKUP_FAILED hay WIFI_FAILED/TIMEOUT; không báo thành công |
+| 7 | Website đăng nhập, chọn cửa hàng, upload Excel thử trên cửa hàng demo | Sản phẩm tải lại đúng; nhớ upload Excel thay danh sách cũ, không thử trên dữ liệu thật cần giữ |
 
-Gửi log lỗi Python, dòng RFID_UID và log build/flash liên quan nếu chưa chạy được; che token, mật khẩu và dữ liệu nhạy cảm.
+Bài test timeout: tắt Python, reset ESP32, quét thẻ, chờ 60s: LOOKUP_TIMEOUT.
+Bài test phản hồi cũ/cắt dòng được kiểm tra giả lập phía Python; muốn xác minh toàn bộ firmware phải thử trên board.
+Mỗi lần quét xem requestId để tránh nhầm lần thử trước. Không paste bản tin store_config vì chứa mật khẩu.
+Mạng máy tính cần truy cập identitytoolkit.googleapis.com, securetoken.googleapis.com, firestore.googleapis.com qua HTTPS.
+Quyền sai tài khoản và UID không tồn tại đều có thể hiện NOT_FOUND: không dò dữ liệu tài khoản khác.
 
-## Trạng thái xác minh
+## 6. Lỗi và giới hạn
 
-Đã kiểm thử logic Python bằng phản hồi giả lập: chuẩn hóa UID, lọc ownerUid+rfidId, ID ngẫu nhiên,
-không in mật khẩu, không tìm thấy, trùng UID, thiếu trường, lỗi quyền. JavaScript đã kiểm tra cú pháp.
-Chưa build firmware bằng ESP-IDF, chưa thử phần cứng hoặc đăng nhập Firebase thật trong môi trường hỗ trợ này.
-Chưa triển khai trực tiếp ESP32 → Firebase qua Wi-Fi, chưa chuyển API sản phẩm/YOLO/TTS.
+- ESP32_ACK_TIMEOUT: Python đã gửi nhưng chưa thấy CONFIG_RECEIVED trong 8s; kiểm tra firmware mới, console UART0/115200, COM rồi reset/quét lại.
+- ESP32_RESULT_TIMEOUT: có ACK nhưng chưa có kết quả Wi-Fi trong 35s. Chưa được kết luận kết nối thành công.
+- LOOKUP_TIMEOUT: ESP32 chờ 60s chưa có cấu hình đúng requestId/uid. Kiểm tra Python/mạng.
+- WIFI_FAILED/WIFI_TIMEOUT: kiểm tra mạng 2.4 GHz có thật trong vùng phủ sóng, password và router. Không retry vô hạn.
+- WIFI_STOP_FAILED: không dừng được kết nối cũ; reset và gửi log đã che bí mật.
+- NOT_FOUND: kiểm tra UID chuẩn hóa và ownerUid thuộc tài khoản.
+- DUPLICATE_UID: sửa bản ghi trùng, chương trình không chọn tùy ý.
+- MISSING_FIELDS/INVALID_CONFIG: sửa dữ liệu trong Firestore, không giả lập thành công.
+- Cổng bận: đóng ESP-IDF monitor/phần mềm serial khác. Mất USB: chương trình báo lỗi COM và kết thúc.
+- API Firebase trả lỗi: kiểm tra Email/Password provider, API key/project, Rules thực tế; không mở quyền công khai để né lỗi.
+- Nếu Console báo cần index, tạo index theo truy vấn ownerUid+rfidId bằng công cụ Firebase.
+- Nội dung thẻ không phải credentials: chỉ UID được đọc. UID không phải bằng chứng xác thực an toàn chống sao chép.
+
+## 7. Xác minh trong môi trường hỗ trợ
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest -v test_firebase_rfid
+```
+
+Kiểm thử tự động dùng phản hồi Firebase và Serial giả lập. Không thay thế kiểm thử Wi-Fi, tài khoản thật hoặc website thật.
+Kết quả build firmware trong phiên triển khai được ghi riêng ở BUILD_VALIDATION.md; xem file đó để phân biệt build với nạp/chạy trên board.
+Chưa xác minh 7 bài thử phần cứng/Firebase/website trên máy bạn. Không tuyên bố hệ thống hoàn thành trước khi có log thật.

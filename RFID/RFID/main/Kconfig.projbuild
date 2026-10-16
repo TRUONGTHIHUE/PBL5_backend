@@ -1,10 +1,11 @@
 menu "PBL5 RFID transport"
 config PBL5_FIREBASE_USB
-    bool "Send RFID over USB to the Python Firebase client"
+    bool "RFID USB bridge: Firebase lookup and store Wi-Fi connection"
     default y
     help
-        Disable Render uploads and Wi-Fi startup. Python reads RFID_UID
-        records from the serial port and queries authenticated Firestore.
+        Disable Render uploads. Python looks up each UID in authenticated
+        Firestore, then sends credentials over USB. ESP32 connects to the
+        selected store Wi-Fi. Serial JSON v1 requires the updated Python client.
 config PBL5_LEGACY_WIFI_SSID
     string "Wi-Fi SSID for legacy Render mode"
     default ""
