@@ -1,7 +1,7 @@
 #include "firebase_bridge.h"
 #include "sdkconfig.h"
 
-#if CONFIG_PBL5_FIREBASE_USB
+#if CONFIG_PBL5_FIREBASE_USB || CONFIG_PBL5_CARD_WIFI
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,6 +18,7 @@
 #include "freertos/event_groups.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 
 #if !CONFIG_ESP_CONSOLE_UART_DEFAULT || CONFIG_ESP_CONSOLE_UART_NUM != 0
 #error "This demo requires the ESP32 UART0 console over USB-UART, not USB-JTAG/custom UART"
@@ -38,6 +39,12 @@ static int64_t lookup_deadline;
 static uint32_t boot_id, sequence;
 static bool wifi_started;
 static int disconnect_reason;
+typedef struct {
+    char id[32];
+    char uid[30];
+    card_config_t config;
+} card_job_t;
+static QueueHandle_t card_jobs;
 
 static void emit(const char *type, const char *id, const char *uid, const char *status,
                  const char *store_id)
@@ -183,7 +190,7 @@ static void connect_store(const char *id, const char *uid, const char *store,
     complete(id, uid, "WIFI_CONNECTED", store);
 }
 
-static void process_line(char *line)
+static void __attribute__((unused)) process_line(char *line)
 {
     if (strncmp(line, "PBL5:", 5) != 0) return;
     /* cJSON stores strings as C strings: reject escaped NUL to avoid truncation. */
@@ -230,6 +237,15 @@ cleanup:
 static void receive_task(void *arg)
 {
     (void)arg;
+#if CONFIG_PBL5_CARD_WIFI
+    card_job_t job;
+    while (true) {
+        if (xQueueReceive(card_jobs, &job, portMAX_DELAY) == pdTRUE) {
+            connect_store(job.id, job.uid, job.config.store_id, job.config.ssid, job.config.password);
+            memset(&job, 0, sizeof(job));
+        }
+    }
+#else
     char line[FRAME_LIMIT + 1];
     size_t used = 0;
     bool discard = false;
@@ -259,6 +275,39 @@ static void receive_task(void *arg)
         xSemaphoreGive(lock);
         if (expired) complete(id, uid, "LOOKUP_TIMEOUT", NULL);
     }
+#endif
+}
+
+bool firebase_bridge_prepare_card(const char *uid)
+{
+    xSemaphoreTake(lock, portMAX_DELAY);
+    bool ready = phase == IDLE;
+    if (ready) connected_store[0] = '\0';
+    xSemaphoreGive(lock);
+    if (!ready) emit("busy", "", uid, "BUSY_RESCAN_AFTER_RESULT", NULL);
+    return ready;
+}
+
+bool firebase_bridge_card_config(const char *uid, const card_config_t *config)
+{
+    if (!card_jobs || !config) return false;
+    card_job_t job = {0};
+    xSemaphoreTake(lock, portMAX_DELAY);
+    if (phase != IDLE) {
+        xSemaphoreGive(lock);
+        emit("busy", "", uid, "BUSY_RESCAN_AFTER_RESULT", NULL);
+        return false;
+    }
+    snprintf(job.id, sizeof(job.id), "%08" PRIx32 "-%" PRIu32, boot_id, ++sequence);
+    snprintf(job.uid, sizeof(job.uid), "%s", uid);
+    job.config = *config;
+    phase = CONNECTING;
+    connected_store[0] = '\0';
+    xSemaphoreGive(lock);
+    bool queued = xQueueSend(card_jobs, &job, 0) == pdTRUE;
+    if (!queued) complete(job.id, uid, "QUEUE_FAILED", NULL);
+    memset(&job, 0, sizeof(job));
+    return queued;
 }
 
 void firebase_bridge_scan(const char *uid)
@@ -307,8 +356,13 @@ esp_err_t firebase_bridge_init(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event, NULL));
-    /* Keep the existing UART0 console pins and baud; only enable buffered RX. */
+#if CONFIG_PBL5_FIREBASE_USB
+    /* UART RX is only used by the old Python bridge, never in card-reader mode. */
     ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 4096, 0, 0, NULL, 0));
+#else
+    card_jobs = xQueueCreate(1, sizeof(card_job_t));
+    if (!card_jobs) return ESP_ERR_NO_MEM;
+#endif
     if (xTaskCreate(receive_task, "firebase_serial", 8192, NULL, 5, NULL) != pdPASS)
         return ESP_ERR_NO_MEM;
     emit("ready", "", "", "READY", NULL);

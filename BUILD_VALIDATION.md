@@ -1,6 +1,25 @@
-# Kết quả kiểm tra bản Serial hai chiều
+# Kết quả kiểm tra
 
-## Đã chạy
+## Bản mới: đọc Wi-Fi trực tiếp từ thẻ, không đăng nhập người dùng
+
+- 41 kiểm thử `python -m unittest -v test_card_record test_firebase_rfid`: PASS, không có bài bị skip trong môi trường Linux có GCC này.
+- Bộ mã hóa Python được đối chiếu với file C thực tế `card_record.c` biên dịch bằng GCC (`-Wall -Wextra -Werror`).
+- File `card_storage.c` thực tế được kiểm tra với driver thẻ giả lập: giới hạn block ghi,
+  header commit cuối cùng, đọc lại, lỗi giữa chừng và kết thúc phiên crypto sau các thao tác.
+- Build **User / PBL5_CARD_WIFI=y**: PASS với ESP-IDF 5.4.4, RC522 4.0.1, target ESP32.
+  Image 816640 byte, còn 22% phân vùng ứng dụng.
+- Build **Setup only / PBL5_CARD_WRITER=y**: PASS cùng toolchain và thư viện.
+  Image 289184 byte, còn 72% phân vùng ứng dụng.
+- Các file nguồn C/header/CMake/Kconfig của hai lần build cuối đã được đối chiếu với repository.
+- Website, Rules, Excel và PBL5_render_api không thay đổi trong lần chuyển kiến trúc này.
+- **Chưa có thiết bị/thẻ thật tại máy hỗ trợ**: chưa xác minh quyền Key A, khả năng ghi thẻ,
+  WRITE_VERIFIED trên phần cứng, hoặc kết nối Wi-Fi thật. Không coi build/giả lập là bằng chứng đã ghi thẻ thành công.
+- Chế độ USB Firebase cũ được giữ; 28 kiểm thử Python cũ vẫn đạt. Chưa build lại chế độ firmware cũ trong lần này.
+- Phần sản phẩm, quyền người mua đọc Firebase và giọng nói chưa triển khai. Xem CARD_WIFI.md để thử từng bước.
+
+## Lịch sử: bản Serial hai chiều trước khi thêm chế độ thẻ
+
+### Đã chạy trên bản cũ
 
 - 28 bài `python -m unittest -v test_firebase_rfid`: PASS. Dùng phản hồi Firebase và Serial giả lập,
   bao gồm hiển thị password demo từ bản ghi trả về, chặn hiển thị/gửi credentials khi tra cứu lỗi hoặc dữ liệu thiếu.
@@ -18,7 +37,7 @@
   `0b1388d3fed9d1c983f2acef0656c84d9c5c64551d578ad315f0a3212221fb94`.
 - `git diff --check`: PASS. Website, Rules, Excel và repository PBL5_render_api không sửa trong lần này.
 
-## Điều kiện build của máy hỗ trợ
+## Điều kiện build của máy hỗ trợ (dùng cho cả hai phiên bản)
 
 Image Docker ESP-IDF đầy đủ không giải nén được do giới hạn đĩa; đã chuyển sang SDK/toolchain cài tối thiểu cho ESP32.
 Kho component Espressif bị proxy chặn. Bản sao dùng để build lấy RC522 từ GitHub chính thức theo tag/commit nêu trên,

@@ -18,6 +18,8 @@
 #include "driver/rc522_spi.h"
 #include "rc522_picc.h"
 #include "firebase_bridge.h"
+#include "card_storage.h"
+#include "card_setup.h"
 
 
 static const char *TAG = "PBL5_RFID";
@@ -682,7 +684,31 @@ static void on_picc_state_changed(
             /*
              * Tim cau hinh cua hang tu UID
              */
-#if CONFIG_PBL5_FIREBASE_USB
+#if CONFIG_PBL5_CARD_WIFI
+            if (!firebase_bridge_prepare_card(uid)) return;
+            uint8_t record[CARD_RECORD_SIZE] = {0};
+            card_config_t card = {0};
+            esp_err_t read_result = card_storage_read(scanner, picc, record);
+            esp_err_t finish = card_storage_finish(scanner, picc);
+            if (read_result == ESP_OK) read_result = finish;
+            if (read_result == ESP_OK && card_record_decode(record, &card)) {
+                ESP_LOGI(TAG, "DATA SOURCE: CARD_MEMORY; Store ID: %s; Wi-Fi SSID: %s; Password: [HIDDEN]",
+                         card.store_id, card.ssid);
+                firebase_bridge_card_config(uid, &card);
+            } else if (read_result == ESP_ERR_NOT_SUPPORTED) {
+                ESP_LOGE(TAG, "UNSUPPORTED_CARD: this mode supports MIFARE 1K only");
+            } else if (read_result != ESP_OK) {
+                ESP_LOGE(TAG, "CARD_READ_OR_AUTH_FAILED: check card/default Key A/access rights");
+            } else {
+                ESP_LOGE(TAG, "CARD_NOT_PROVISIONED_OR_CORRUPT: no valid P5W1 record; no Wi-Fi attempt");
+            }
+            memset(record, 0, sizeof(record));
+            memset(&card, 0, sizeof(card));
+            return;
+#elif CONFIG_PBL5_CARD_WRITER
+            card_setup_scan(scanner, picc, uid);
+            return;
+#elif CONFIG_PBL5_FIREBASE_USB
             firebase_bridge_scan(uid);
             return;
 #endif
@@ -834,8 +860,10 @@ void app_main(void)
 
     ESP_ERROR_CHECK(ret);
 
-#if CONFIG_PBL5_FIREBASE_USB
+#if CONFIG_PBL5_FIREBASE_USB || CONFIG_PBL5_CARD_WIFI
     ESP_ERROR_CHECK(firebase_bridge_init());
+#elif CONFIG_PBL5_CARD_WRITER
+    ESP_ERROR_CHECK(card_setup_init());
 #endif
 
 
@@ -843,7 +871,7 @@ void app_main(void)
      * KHOI TAO WIFI
      * ===================================================== */
 
-#if !CONFIG_PBL5_FIREBASE_USB
+#if CONFIG_PBL5_LEGACY_RENDER
     ESP_LOGI(
         TAG,
         "Khoi dong Wi-Fi..."

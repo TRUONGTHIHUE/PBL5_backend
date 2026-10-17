@@ -1,5 +1,8 @@
 # RFID → Python/Firebase → ESP32 kết nối Wi-Fi
 
+> Đây là chế độ kiểm tra cũ, có đăng nhập chủ cửa hàng. Luồng mới không yêu cầu người dùng đăng nhập:
+> xem CARD_WIFI.md (đọc cấu hình trực tiếp từ thẻ) và chọn đúng Operating mode trong menuconfig.
+
 ## Phạm vi và giới hạn
 
 Luồng: RC522 → ESP32 đọc UID → USB Serial → Python đăng nhập Firebase → tra Firestore → USB trả cấu hình → ESP32 kết nối Wi-Fi cửa hàng.

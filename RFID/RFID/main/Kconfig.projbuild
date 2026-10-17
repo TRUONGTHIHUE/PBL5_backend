@@ -1,4 +1,18 @@
 menu "PBL5 RFID transport"
+choice PBL5_MODE
+    prompt "Operating mode"
+    default PBL5_CARD_WIFI
+config PBL5_CARD_WIFI
+    bool "User: read store Wi-Fi from MIFARE 1K (no Firebase login)"
+    help
+        Read a provisioned P5W1 record from the physical card and connect to
+        its Wi-Fi. No Python or Firebase account is needed by the user.
+config PBL5_CARD_WRITER
+    bool "Setup only: provision a spare MIFARE 1K card over USB"
+    help
+        Explicit target UID and local confirmation required. Writes only
+        sector 1..4 data blocks, never UID or sector trailers. Reflash user
+        mode after provisioning; do not distribute writer mode to users.
 config PBL5_FIREBASE_USB
     bool "RFID USB bridge: Firebase lookup and store Wi-Fi connection"
     default y
@@ -6,6 +20,9 @@ config PBL5_FIREBASE_USB
         Disable Render uploads. Python looks up each UID in authenticated
         Firestore, then sends credentials over USB. ESP32 connects to the
         selected store Wi-Fi. Serial JSON v1 requires the updated Python client.
+config PBL5_LEGACY_RENDER
+    bool "Legacy Render mapping demo"
+endchoice
 config PBL5_LEGACY_WIFI_SSID
     string "Wi-Fi SSID for legacy Render mode"
     default ""
