@@ -3,9 +3,12 @@ import argparse
 import getpass
 import json
 import os
+from pathlib import Path
 import re
 import time
 
+import keyring
+from keyring.errors import KeyringError
 import requests
 
 PREFIX = b"PBL5:"
@@ -28,6 +31,9 @@ class FirebaseError(RuntimeError):
         "PERMISSION_DENIED": "Không có quyền; kiểm tra Rules, ownerUid và cấu hình API key/project.",
         "UNAUTHENTICATED": "Phiên đăng nhập không hợp lệ; đăng nhập lại.",
         "FAILED_PRECONDITION": "Kiểm tra cấu hình Firestore và index của truy vấn trong Firebase Console.",
+        "INVALID_REFRESH_TOKEN": "Phiên thiết bị đã hết hạn; người quản trị chạy lại --setup-auth một lần.",
+        "TOKEN_EXPIRED": "Phiên thiết bị đã hết hạn; người quản trị chạy lại --setup-auth một lần.",
+        "INVALID_GRANT": "Phiên thiết bị không còn hợp lệ; người quản trị chạy lại --setup-auth một lần.",
     }
 
     def __init__(self, status, code=None):
@@ -91,11 +97,22 @@ def normalize_uid(value):
 class FirebaseClient:
     def __init__(self, api_key, project, email, password):
         self.api_key, self.project = api_key, project
+        self.on_refresh = None
         data = self._post(
             f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}",
             json={"email": email, "password": password, "returnSecureToken": True})
         self.owner = data["localId"]
         self._tokens(data["idToken"], data["refreshToken"], data["expiresIn"])
+
+    @classmethod
+    def from_refresh_token(cls, api_key, project, refresh_token, on_refresh=None):
+        """Start without asking the daily user for an email or password."""
+        client = cls.__new__(cls)
+        client.api_key, client.project = api_key, project
+        client.on_refresh = on_refresh
+        client.refresh = refresh_token
+        client._refresh_tokens()
+        return client
 
     @staticmethod
     def _post(url, **kwargs):
@@ -120,13 +137,22 @@ class FirebaseClient:
         self.token, self.refresh = token, refresh
         self.expires = time.monotonic() + int(seconds) - 60
 
+    def _refresh_tokens(self):
+        data = self._post(
+            f"https://securetoken.googleapis.com/v1/token?key={self.api_key}",
+            data={"grant_type": "refresh_token", "refresh_token": self.refresh})
+        owner = data.get("user_id")
+        if not isinstance(owner, str) or not owner:
+            raise FirebaseError(401, "UNAUTHENTICATED")
+        self.owner = owner
+        self._tokens(data["id_token"], data["refresh_token"], data["expires_in"])
+        if self.on_refresh:
+            self.on_refresh(self.refresh)
+
     def lookup(self, uid):
         uid = normalize_uid(uid)
         if time.monotonic() >= self.expires:
-            data = self._post(
-                f"https://securetoken.googleapis.com/v1/token?key={self.api_key}",
-                data={"grant_type": "refresh_token", "refresh_token": self.refresh})
-            self._tokens(data["id_token"], data["refresh_token"], data["expires_in"])
+            self._refresh_tokens()
         filters = [{"fieldFilter": {"field": {"fieldPath": field}, "op": "EQUAL",
                     "value": {"stringValue": value}}}
                    for field, value in (("ownerUid", self.owner), ("rfidId", uid))]
@@ -148,6 +174,50 @@ class FirebaseClient:
             raise ValueError("MISSING_FIELDS: thiếu storeId, wifiSSID hoặc wifiPassword")
         result["documentId"] = docs[0]["name"].rsplit("/", 1)[-1]
         return validate_store(result)
+
+
+class SessionStore:
+    """Keep only the Firebase refresh token in the operating-system credential vault."""
+    ACCOUNT = "device-session"
+
+    def __init__(self, project):
+        self.service = f"PBL5-RFID-Firebase:{project}"
+
+    def load(self):
+        try:
+            return keyring.get_password(self.service, self.ACCOUNT)
+        except KeyringError:
+            raise RuntimeError("AUTH_STORAGE_ERROR: không đọc được Windows Credential Manager") from None
+
+    def save(self, refresh_token):
+        if not isinstance(refresh_token, str) or not refresh_token:
+            raise RuntimeError("AUTH_SESSION_INVALID: Firebase không trả về phiên hợp lệ")
+        try:
+            keyring.set_password(self.service, self.ACCOUNT, refresh_token)
+        except KeyringError:
+            raise RuntimeError("AUTH_STORAGE_ERROR: không lưu được vào Windows Credential Manager") from None
+
+    def clear(self):
+        try:
+            keyring.delete_password(self.service, self.ACCOUNT)
+        except keyring.errors.PasswordDeleteError:
+            pass
+        except KeyringError:
+            raise RuntimeError("AUTH_STORAGE_ERROR: không xóa được phiên trong Windows Credential Manager") from None
+
+
+def load_web_api_key():
+    """The Firebase Web API key is public configuration, never an admin credential."""
+    configured = os.getenv("FIREBASE_WEB_API_KEY")
+    if configured:
+        return configured.strip()
+    config = Path(__file__).resolve().parent / "firebase" / "public" / "firebase-config.js"
+    try:
+        source = config.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(r'\bapiKey\s*:\s*["\']([^"\']+)["\']', source)
+    return match.group(1).strip() if match else None
 
 
 def show_store(uid, store):
@@ -268,28 +338,51 @@ class SerialBridge:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", help="Cổng ESP32, ví dụ COM5")
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument("--port", help="Cổng ESP32, ví dụ COM5")
+    action.add_argument("--uid", help="Thử truy vấn Firebase bằng UID thật, không cần ESP32")
+    action.add_argument("--setup-auth", action="store_true",
+                        help="Người quản trị đăng nhập một lần và lưu phiên an toàn trên máy")
+    action.add_argument("--clear-auth", action="store_true",
+                        help="Xóa phiên Firebase đã lưu trên máy")
     parser.add_argument("--baud", type=int, default=115200)
-    parser.add_argument("--uid", help="Thử truy vấn Firebase bằng UID thật, không cần ESP32")
     parser.add_argument("--email", default=os.getenv("FIREBASE_EMAIL"))
     parser.add_argument("--project", default="quanlycuahang-afb59")
     args = parser.parse_args()
-    if not args.uid and not args.port:
-        parser.error("Cần --port COMx hoặc --uid 'CD 4B 1E 03'")
-    key = os.getenv("FIREBASE_WEB_API_KEY")
+    sessions = SessionStore(args.project)
+    if args.clear_auth:
+        try:
+            sessions.clear()
+            print("Đã xóa phiên Firebase của thiết bị.")
+            return 0
+        except RuntimeError as error:
+            print(str(error))
+            return 1
+    key = load_web_api_key()
     if not key:
-        parser.error("Đặt FIREBASE_WEB_API_KEY bằng apiKey trong public/firebase-config.js")
-    email = args.email or input("Email Firebase: ").strip()
-    password = getpass.getpass("Mật khẩu Firebase (không hiển thị): ")
+        parser.error("Không tìm thấy apiKey trong firebase/public/firebase-config.js")
     try:
-        client = FirebaseClient(key, args.project, email, password)
-        del password
-        print(f"Đã đăng nhập Firebase. User UID: {client.owner}", flush=True)
+        if args.setup_auth:
+            email = args.email or input("Email người quản trị Firebase: ").strip()
+            password = getpass.getpass("Mật khẩu Firebase (chỉ nhập lần thiết lập này): ")
+            client = FirebaseClient(key, args.project, email, password)
+            password = None
+            sessions.save(client.refresh)
+            print("THIẾT LẬP THÀNH CÔNG: đã lưu phiên vào Windows Credential Manager.", flush=True)
+            print("Từ lần sau chỉ chạy firebase_rfid.py --port COM5; chương trình không hỏi tài khoản.", flush=True)
+            return 0
+        refresh_token = sessions.load()
+        if not refresh_token:
+            print("CHƯA THIẾT LẬP THIẾT BỊ: người quản trị cần chạy firebase_rfid.py --setup-auth một lần.")
+            return 2
+        client = FirebaseClient.from_refresh_token(
+            key, args.project, refresh_token, on_refresh=sessions.save)
+        print("Firebase đã tự xác thực bằng phiên thiết bị đã lưu.", flush=True)
         if args.uid:
             return 0 if display(client, args.uid) else 1
         import serial
         with serial.Serial(args.port, args.baud, timeout=0.2, write_timeout=2) as device:
-            print("Đã đăng nhập. Đang chờ quét thẻ...", flush=True)
+            print("Đang chờ quét thẻ RFID...", flush=True)
             decoder = LineDecoder()
             bridge = SerialBridge(client, device)
             while True:

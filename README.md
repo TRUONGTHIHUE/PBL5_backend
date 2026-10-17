@@ -23,4 +23,6 @@ Chọn Operating mode **RFID USB bridge: Firebase lookup and store Wi-Fi connect
 Website trong `firebase/`, Rules, Excel và API PHP/Render/CSV được giữ nguyên.
 Các chế độ card-memory thử nghiệm được giữ để không xóa mã cũ nhưng ẩn sau tùy chọn riêng, không dùng cho yêu cầu này.
 Không chạy provision_card.py, không cần ghi thẻ, không thay chân RC522.
-Firebase vẫn yêu cầu xác thực: bản demo dùng tài khoản có ownerUid phù hợp. Không nhúng tài khoản chủ cửa hàng lên ESP32.
+Firebase vẫn yêu cầu xác thực theo Rules hiện có. Người quản trị chạy `firebase_rfid.py --setup-auth` một lần;
+phiên được giữ trong Windows Credential Manager. Khi dùng hằng ngày với `--port COM5`, chương trình không hỏi email/mật khẩu.
+Không nhúng tài khoản chủ cửa hàng lên ESP32 hoặc source code.

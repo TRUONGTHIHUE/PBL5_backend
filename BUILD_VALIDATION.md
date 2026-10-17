@@ -2,14 +2,16 @@
 
 ## Yêu cầu hiện tại: UID → Python/Firebase → ESP32 Wi-Fi
 
-- 43 bài `python -m unittest -v test_firebase_rfid test_card_record`: PASS trên máy hỗ trợ Linux/GCC.
+- 49 bài `python -m unittest -v test_firebase_rfid test_card_record`: PASS trên máy hỗ trợ Linux/GCC.
+- Đã kiểm tra chế độ hằng ngày không gọi prompt email/mật khẩu, khởi tạo bằng refresh token đã lưu,
+  xoay refresh token và lưu qua giao diện kho credentials của hệ điều hành.
 - Python gửi đúng ba trường cấu hình: storeId, wifiSSID, wifiPassword; storeName không bắt buộc.
 - Đã kiểm tra thiếu dữ liệu, không tìm thấy, UID trùng, lỗi Firebase, timeout, phản hồi cũ và sai storeId phản hồi.
 - Cross-build với ESP-IDF 5.4.4, RC522 4.0.1, ESP32, UART0 mặc định: PASS.
 - Cấu hình tạo mới không override mode đã tự chọn `CONFIG_PBL5_FIREBASE_USB=y`; hai mode card-memory không bật.
 - Source của build khớp repository. RFID.bin 830560 byte; còn 21% phân vùng ứng dụng.
 - Chưa xác minh vòng tra Firebase → USB → Wi-Fi thật bằng tài khoản/thẻ/ESP32 của người dùng.
-- Website, Rules, Excel, chân RC522 và repository PBL5_render_api không thay đổi trong lần này.
+- Website, Rules, Excel, chân RC522 và repository PBL5_render_api không thay đổi trong lần xác thực tự động này.
 - Mode card-memory trước đó được giữ và ẩn sau tùy chọn thử nghiệm; không dùng cho yêu cầu hiện tại.
 
 ## Lịch sử thử nghiệm: đọc Wi-Fi trực tiếp từ thẻ

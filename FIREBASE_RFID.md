@@ -5,17 +5,19 @@
 
 ## Phạm vi và giới hạn
 
-Luồng: RC522 → ESP32 đọc UID → USB Serial → Python đăng nhập Firebase → tra Firestore → USB trả cấu hình → ESP32 kết nối Wi-Fi cửa hàng.
+Luồng: RC522 → ESP32 đọc UID → USB Serial → Python tự dùng phiên thiết bị để tra Firestore → USB trả cấu hình → ESP32 kết nối Wi-Fi cửa hàng.
 Máy tính cần Internet riêng để tra Firebase trước; không phụ thuộc ESP32 đã có Wi-Fi hay chưa.
 Bản này có máy tính làm trung gian; không ghi SSID/password vào thẻ và không phải ESP32 tự truy vấn Firebase.
-Python dùng Firebase Authentication email/password và Rules hiện có: chỉ tìm cửa hàng thuộc ownerUid của tài khoản đăng nhập.
+Người quản trị đăng nhập Firebase đúng một lần khi thiết lập máy. Python lưu refresh token trong Windows Credential Manager,
+tự gia hạn phiên ở các lần chạy sau và chỉ tìm cửa hàng thuộc ownerUid của tài khoản đã thiết lập.
 Không thể dùng một tài khoản khách bất kỳ để tra mọi cửa hàng. Chưa triển khai phân quyền người mua cho sản phẩm thật.
 Không dùng Admin key, không mở Rules công khai. Không thay Excel, barcode, YOLO, PHP/Render/CSV hoặc di chuyển dữ liệu.
 
 USB Serial truyền mật khẩu dạng rõ (JSON), KHÔNG mã hóa. Chỉ dùng thiết bị/máy tính tin cậy cho demo.
 Bản demo này có chủ đích in wifiPassword từ Firebase trong Terminal Python sau khi tra cứu và kiểm tra dữ liệu thành công.
 Không chụp/chia sẻ màn hình chứa mật khẩu, không redirect output ra file hoặc đưa log lên GitHub. Chương trình không tự ghi file log.
-Mật khẩu tài khoản Firebase vẫn được nhập ẩn và không in ra. ESP32 dùng WIFI_STORAGE_RAM.
+Mật khẩu tài khoản Firebase chỉ được nhập ẩn trong lần `--setup-auth`, không lưu trong source hoặc Credential Manager.
+Người sử dụng hằng ngày không nhập email/mật khẩu. ESP32 dùng WIFI_STORAGE_RAM.
 Mạng cần là Wi-Fi 2.4 GHz tương thích ESP32. Chưa hỗ trợ captive portal hoặc WPA Enterprise.
 Mạng giả hoặc không trong vùng phủ sóng phải báo thất bại, không báo kết nối giả.
 Có thể gán cả ba cửa hàng cùng Wi-Fi thật tại trọ để thử; điều này chỉ chứng minh chọn đúng bản ghi, không chứng minh chuyển ba mạng khác nhau.
@@ -25,7 +27,7 @@ Có thể gán cả ba cửa hàng cùng Wi-Fi thật tại trọ để thử; �
 - `RFID/RFID/main/main.c`: giữ GPIO và RC522; gọi bridge khi đọc được UID.
 - `RFID/RFID/main/firebase_bridge.c`, `.h`: Serial hai chiều, chống phản hồi cũ và kết nối Wi-Fi.
 - `RFID/RFID/main/Kconfig.projbuild`, `CMakeLists.txt`: bật chế độ bridge và biên dịch module.
-- `firebase_rfid.py`: đăng nhập/refresh token, query ownerUid+rfidId, gửi cấu hình, chờ trạng thái.
+- `firebase_rfid.py`: thiết lập phiên một lần, tự refresh, query ownerUid+rfidId, gửi cấu hình và chờ trạng thái.
 - `test_firebase_rfid.py`: kiểm thử Firebase giả lập và giao thức Python.
 - `SERIAL_PROTOCOL.md`: định dạng bản tin và timeout.
 - `firebase/`: website từ ZIP trước đó. Không sửa website, Excel hoặc Rules ở bước Serial hai chiều này.
@@ -92,36 +94,47 @@ Quét thẻ và thấy bản tin `PBL5:` JSON có type=scan, uid thật và requ
 Không chạy Python khi monitor còn mở. Ctrl+] để thoát monitor.
 Nếu đã thử quét khi chưa chạy Python, reset ESP32 rồi quét lại sau khi Python đăng nhập; mỗi yêu cầu tra cứu hết hạn sau 60 giây.
 
-## 4. Python — PowerShell tại thư mục gốc repository
+## 4. Python — thiết lập một lần rồi chạy không cần nhập tài khoản
+
+Chạy trong **CMD hoặc PowerShell tại thư mục gốc repository**. Cài thư viện sau mỗi lần cập nhật requirements:
 
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-firebase.txt
-$env:FIREBASE_WEB_API_KEY = "API_KEY_WEB_LAY_TU_firebase/public/firebase-config.js"
 ```
 
-Thay chữ mẫu bằng giá trị apiKey Web của project. Không dùng private key/service-account key.
-Kiểm tra Firestore riêng, không kết nối Wi-Fi ESP32:
+Chương trình tự đọc Web API key công khai từ `firebase/public/firebase-config.js`; không cần gõ lại API key,
+không dùng private key hoặc service-account key.
+
+### Người quản trị làm đúng một lần trên máy
+
+```powershell
+.\.venv\Scripts\python.exe firebase_rfid.py --setup-auth
+```
+
+Lệnh này mới hỏi email và mật khẩu tài khoản chủ cửa hàng. Email phải có trong Firebase Console → Authentication → Users,
+Email/Password provider phải bật và ownerUid của cửa hàng phải là UID của tài khoản đó.
+Mật khẩu nhập ẩn, không lưu; refresh token được lưu bằng Windows Credential Manager theo tài khoản Windows đang dùng.
+INVALID_LOGIN_CREDENTIALS: kiểm tra tài khoản project này và mật khẩu; API_KEY_INVALID: kiểm tra API key Web;
+OPERATION_NOT_ALLOWED: bật Email/Password. Không chia sẻ mật khẩu, token hay log Wi-Fi để chẩn đoán đăng nhập.
+
+Có thể kiểm tra Firestore riêng sau khi thiết lập, không cần ESP32:
 
 ```powershell
 .\.venv\Scripts\python.exe firebase_rfid.py --uid "CD 4B 1E 03"
 ```
 
-Nhập tài khoản chủ cửa hàng trên website, không phải tài khoản Google Console hay mật khẩu Wi-Fi. Mật khẩu đăng nhập được nhập ẩn.
-Không ghi email/mật khẩu vào source. Email phải có trong Firebase Console → Authentication → Users,
-và Email/Password provider phải bật. Đăng nhập thành công in User UID để đối chiếu với ownerUid của tài liệu cửa hàng.
-UID tài khoản Authentication khác UID thẻ RFID: tài khoản cấp quyền đọc, UID thẻ chọn cửa hàng.
-Nếu lỗi trước thông báo đăng nhập thành công, chương trình chưa mở COM hoặc tra thẻ; sửa đăng nhập/mạng trước.
-INVALID_LOGIN_CREDENTIALS: kiểm tra tài khoản project này và mật khẩu; API_KEY_INVALID: kiểm tra API key Web;
-OPERATION_NOT_ALLOWED: bật Email/Password. Không chia sẻ mật khẩu, token hay log Wi-Fi để chẩn đoán đăng nhập.
 FETCH STATUS SUCCESS chỉ chứng minh truy vấn Firebase đúng; không chứng minh ESP32 đã nhận hoặc kết nối.
-Sau đó chạy nhận thẻ:
+
+### Mỗi lần sử dụng với ESP32
 
 ```powershell
 .\.venv\Scripts\python.exe firebase_rfid.py --port COM5
 ```
 
-Đăng nhập, quét thẻ. Chương trình mở COM một lần. Không mở Serial Monitor song song. Ctrl+C để dừng.
+Lệnh này **không hỏi email, mật khẩu hoặc API key**. Người dùng chỉ chờ dòng `Đang chờ quét thẻ RFID...` rồi chạm thẻ.
+Chương trình mở COM một lần. Không mở Serial Monitor song song. Ctrl+C để dừng.
+Nếu phiên bị thu hồi/hết hiệu lực, chương trình dừng và yêu cầu người quản trị chạy lại `--setup-auth`; không chuyển việc nhập tài khoản cho người dùng.
 Thông tin cửa hàng từ Firebase được in, bao gồm wifiPassword thật trong bản demo theo yêu cầu.
 Các dòng dưới là định dạng, không phải dữ liệu đã được xác minh hoặc giá trị cần hardcode:
 
@@ -157,7 +170,7 @@ Hàm firmware firebase_bridge_connected_store() chỉ trả storeId khi kết n�
 | Bài | Thao tác | Kết quả cần kiểm chứng |
 |---|---|---|
 | 1 | flash monitor, quét thẻ | UID JSON đúng với UID thẻ; thoát monitor sau kiểm tra |
-| 2 | --uid UID_THAT | Tìm đúng documentId/storeId/tên/SSID/password; xem tại máy, không chia sẻ log |
+| 2 | thiết lập một lần, rồi --uid UID_THAT | Không hỏi lại tài khoản; tìm đúng documentId/storeId/tên/SSID/password |
 | 3 | --port COMx, quét thẻ | CONFIG_RECEIVED từ ESP32; không coi lệnh Python gửi thành công là đã nhận |
 | 4 | SSID/password hợp lệ của mạng thật | WIFI_CONNECTED sau khi có IP |
 | 5 | Quét lần lượt ba thẻ, chờ xong mỗi lần | Ba bản ghi đúng; kiểm tra SSID từng bản ghi, không dựa vào bảng firmware |
@@ -181,6 +194,8 @@ Quyền sai tài khoản và UID không tồn tại đều có thể hiện NOT_
 - DUPLICATE_UID: sửa bản ghi trùng, chương trình không chọn tùy ý.
 - MISSING_FIELDS/INVALID_CONFIG: sửa dữ liệu trong Firestore, không giả lập thành công.
 - Cổng bận: đóng ESP-IDF monitor/phần mềm serial khác. Mất USB: chương trình báo lỗi COM và kết thúc.
+- CHƯA THIẾT LẬP THIẾT BỊ: người quản trị chạy `--setup-auth` một lần; chế độ COM không tự hỏi tài khoản.
+- Phiên bị thu hồi/hết hạn: người quản trị chạy lại `--setup-auth`. Có thể dùng `--clear-auth` để xóa phiên khỏi Windows Credential Manager.
 - API Firebase trả lỗi: kiểm tra Email/Password provider, API key/project, Rules thực tế; không mở quyền công khai để né lỗi.
 - Nếu Console báo cần index, tạo index theo truy vấn ownerUid+rfidId bằng công cụ Firebase.
 - Nội dung thẻ không phải credentials: chỉ UID được đọc. UID không phải bằng chứng xác thực an toàn chống sao chép.

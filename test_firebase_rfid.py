@@ -1,12 +1,14 @@
 import unittest
 import io
 import json
+import sys
 from contextlib import redirect_stdout
 from unittest.mock import patch, Mock
 
 import requests
 from firebase_rfid import (FirebaseClient, normalize_uid, display, SerialBridge,
-                           LineDecoder, validate_store, FRAME_LIMIT, FirebaseError)
+                           LineDecoder, validate_store, FRAME_LIMIT, FirebaseError,
+                           SessionStore, load_web_api_key, main)
 
 
 def response(data, status=200):
@@ -67,10 +69,69 @@ class FirebaseTests(unittest.TestCase):
     def test_token_refresh(self):
         client, request = self.client([])
         client.expires = 0
-        request.side_effect = [response({'id_token': 'new', 'refresh_token': 'new-refresh', 'expires_in': '3600'}),
+        request.side_effect = [response({'id_token': 'new', 'refresh_token': 'new-refresh',
+                                         'expires_in': '3600', 'user_id': 'owner'}),
                                response([self.document()])]
         client.lookup('CD 4B 1E 03')
         self.assertEqual(request.call_args.kwargs['headers']['Authorization'], 'Bearer new')
+
+    def test_saved_refresh_token_authenticates_without_password(self):
+        refreshed = {'id_token': 'id', 'refresh_token': 'rotated',
+                     'expires_in': '3600', 'user_id': 'owner'}
+        saved = Mock()
+        with patch('firebase_rfid.requests.post', return_value=response(refreshed)) as request:
+            client = FirebaseClient.from_refresh_token('key', 'project', 'saved-token', saved)
+        self.assertEqual(client.owner, 'owner')
+        self.assertEqual(client.refresh, 'rotated')
+        saved.assert_called_once_with('rotated')
+        self.assertIn('securetoken.googleapis.com', request.call_args.args[0])
+
+    def test_session_store_uses_os_keyring(self):
+        store = SessionStore('project')
+        with patch('firebase_rfid.keyring.set_password') as save, \
+             patch('firebase_rfid.keyring.get_password', return_value='refresh') as load:
+            store.save('refresh')
+            self.assertEqual(store.load(), 'refresh')
+        save.assert_called_once_with('PBL5-RFID-Firebase:project', 'device-session', 'refresh')
+        load.assert_called_once_with('PBL5-RFID-Firebase:project', 'device-session')
+
+    def test_daily_mode_never_prompts_when_setup_is_missing(self):
+        output = io.StringIO()
+        with patch.object(sys, 'argv', ['firebase_rfid.py', '--uid', 'CD 4B 1E 03']), \
+             patch('firebase_rfid.SessionStore.load', return_value=None), \
+             patch('builtins.input', side_effect=AssertionError('must not prompt')), \
+             patch('firebase_rfid.getpass.getpass', side_effect=AssertionError('must not prompt')), \
+             redirect_stdout(output):
+            self.assertEqual(main(), 2)
+        self.assertIn('--setup-auth', output.getvalue())
+
+    def test_daily_mode_uses_saved_session_without_prompt(self):
+        client = Mock(owner='owner')
+        with patch.object(sys, 'argv', ['firebase_rfid.py', '--uid', 'CD 4B 1E 03']), \
+             patch('firebase_rfid.SessionStore.load', return_value='saved-refresh'), \
+             patch('firebase_rfid.FirebaseClient.from_refresh_token', return_value=client) as refresh, \
+             patch('firebase_rfid.display', return_value=True), \
+             patch('builtins.input', side_effect=AssertionError('must not prompt')), \
+             patch('firebase_rfid.getpass.getpass', side_effect=AssertionError('must not prompt')):
+            self.assertEqual(main(), 0)
+        refresh.assert_called_once()
+
+    def test_setup_auth_is_the_only_mode_that_saves_login_session(self):
+        client = Mock(refresh='new-refresh')
+        with patch.object(sys, 'argv', ['firebase_rfid.py', '--setup-auth']), \
+             patch('builtins.input', return_value='owner@example.com') as email, \
+             patch('firebase_rfid.getpass.getpass', return_value='account-password') as password, \
+             patch('firebase_rfid.FirebaseClient', return_value=client), \
+             patch('firebase_rfid.SessionStore.save') as save:
+            self.assertEqual(main(), 0)
+        email.assert_called_once()
+        password.assert_called_once()
+        save.assert_called_once_with('new-refresh')
+
+    def test_web_api_key_loads_from_public_firebase_config(self):
+        with patch.dict('os.environ', {}, clear=True):
+            key = load_web_api_key()
+        self.assertTrue(key.startswith('AIza'))
 
     def test_login_error_has_safe_actionable_code(self):
         with patch('firebase_rfid.requests.post', return_value=response(
