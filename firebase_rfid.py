@@ -15,9 +15,26 @@ FINAL_STATUSES = {"WIFI_CONNECTED", "WIFI_FAILED", "WIFI_TIMEOUT", "WIFI_STOP_FA
 
 
 class FirebaseError(RuntimeError):
-    def __init__(self, status):
+    HINTS = {
+        "INVALID_LOGIN_CREDENTIALS": "Email hoặc mật khẩu không đúng, hoặc tài khoản không tồn tại trong project này.",
+        "EMAIL_NOT_FOUND": "Email chưa có trong Authentication → Users của project này.",
+        "INVALID_PASSWORD": "Mật khẩu tài khoản Firebase không đúng; không dùng mật khẩu Wi-Fi.",
+        "INVALID_EMAIL": "Định dạng email không hợp lệ.",
+        "USER_DISABLED": "Tài khoản đã bị vô hiệu hóa trong Firebase Authentication.",
+        "OPERATION_NOT_ALLOWED": "Kiểm tra Authentication → Sign-in method → Email/Password đã bật.",
+        "PASSWORD_LOGIN_DISABLED": "Đăng nhập bằng mật khẩu chưa được cho phép.",
+        "API_KEY_INVALID": "API key Web không hợp lệ; đối chiếu firebase/public/firebase-config.js.",
+        "TOO_MANY_ATTEMPTS_TRY_LATER": "Firebase đang giới hạn đăng nhập; chờ rồi thử lại.",
+        "PERMISSION_DENIED": "Không có quyền; kiểm tra Rules, ownerUid và cấu hình API key/project.",
+        "UNAUTHENTICATED": "Phiên đăng nhập không hợp lệ; đăng nhập lại.",
+        "FAILED_PRECONDITION": "Kiểm tra cấu hình Firestore và index của truy vấn trong Firebase Console.",
+    }
+
+    def __init__(self, status, code=None):
         self.status = int(status)
-        super().__init__(f"Firebase HTTP {self.status}; kiểm tra đăng nhập, Rules và mạng")
+        self.code = code if code in self.HINTS else "UNKNOWN"
+        hint = self.HINTS.get(self.code, "Kiểm tra đăng nhập, API key/project, quyền truy cập và mạng.")
+        super().__init__(f"Firebase HTTP {self.status} ({self.code}): {hint}")
 
 
 def text_bytes(value, field, minimum, maximum):
@@ -85,7 +102,18 @@ class FirebaseClient:
         response = requests.post(url, timeout=20, **kwargs)
         if not response.ok:
             # Do not expose request bodies, tokens, passwords or response documents.
-            raise FirebaseError(response.status_code)
+            code = None
+            try:
+                payload = response.json()
+                error = payload.get("error") if isinstance(payload, dict) else None
+                if isinstance(error, dict):
+                    for candidate in (error.get("message"), error.get("status")):
+                        if isinstance(candidate, str) and candidate in FirebaseError.HINTS:
+                            code = candidate
+                            break
+            except ValueError:
+                pass
+            raise FirebaseError(response.status_code, code)
         return response.json()
 
     def _tokens(self, token, refresh, seconds):
@@ -250,6 +278,7 @@ def main():
     try:
         client = FirebaseClient(key, args.project, email, password)
         del password
+        print(f"Đã đăng nhập Firebase. User UID: {client.owner}", flush=True)
         if args.uid:
             return 0 if display(client, args.uid) else 1
         import serial
@@ -263,6 +292,18 @@ def main():
                 bridge.tick()
     except KeyboardInterrupt:
         return 0
+    except FirebaseError as error:
+        print(str(error))
+        return 1
+    except requests.exceptions.SSLError:
+        print("FIREBASE_TLS_ERROR: kiểm tra chứng chỉ HTTPS, ngày giờ Windows hoặc proxy; không tắt xác minh TLS.")
+        return 1
+    except requests.exceptions.Timeout:
+        print("FIREBASE_TIMEOUT: Firebase không phản hồi trong thời gian chờ; kiểm tra Internet.")
+        return 1
+    except requests.exceptions.ConnectionError:
+        print("FIREBASE_NETWORK_ERROR: không kết nối được Firebase; kiểm tra Internet, proxy hoặc tường lửa.")
+        return 1
     except (RuntimeError, ValueError, requests.RequestException):
         print("Lỗi Firebase/dữ liệu. Kiểm tra tài khoản, API key, trường dữ liệu và kết nối.")
         return 1

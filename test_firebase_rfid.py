@@ -6,7 +6,7 @@ from unittest.mock import patch, Mock
 
 import requests
 from firebase_rfid import (FirebaseClient, normalize_uid, display, SerialBridge,
-                           LineDecoder, validate_store, FRAME_LIMIT)
+                           LineDecoder, validate_store, FRAME_LIMIT, FirebaseError)
 
 
 def response(data, status=200):
@@ -71,6 +71,26 @@ class FirebaseTests(unittest.TestCase):
                                response([self.document()])]
         client.lookup('CD 4B 1E 03')
         self.assertEqual(request.call_args.kwargs['headers']['Authorization'], 'Bearer new')
+
+    def test_login_error_has_safe_actionable_code(self):
+        with patch('firebase_rfid.requests.post', return_value=response(
+                {'error': {'message': 'INVALID_LOGIN_CREDENTIALS'}}, 400)):
+            with self.assertRaisesRegex(FirebaseError, 'INVALID_LOGIN_CREDENTIALS'):
+                FirebaseClient('key', 'project', 'email', 'password')
+
+    def test_unknown_error_does_not_echo_sensitive_response(self):
+        with patch('firebase_rfid.requests.post', return_value=response(
+                {'error': {'message': 'sensitive-raw-response'}}, 400)):
+            with self.assertRaises(FirebaseError) as captured:
+                FirebaseClient('key', 'project', 'email', 'password')
+        self.assertNotIn('sensitive-raw-response', str(captured.exception))
+        self.assertEqual(captured.exception.code, 'UNKNOWN')
+
+    def test_firestore_status_code_is_recognized(self):
+        with patch('firebase_rfid.requests.post', return_value=response(
+                {'error': {'message': 'raw-response', 'status': 'PERMISSION_DENIED'}}, 403)):
+            with self.assertRaisesRegex(FirebaseError, 'PERMISSION_DENIED'):
+                FirebaseClient._post('https://firestore.googleapis.com/test')
 
 
 class ProtocolTests(unittest.TestCase):

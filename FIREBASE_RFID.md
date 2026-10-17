@@ -103,6 +103,12 @@ Kiểm tra Firestore riêng, không kết nối Wi-Fi ESP32:
 ```
 
 Nhập tài khoản chủ cửa hàng trên website, không phải tài khoản Google Console hay mật khẩu Wi-Fi. Mật khẩu đăng nhập được nhập ẩn.
+Không ghi email/mật khẩu vào source. Email phải có trong Firebase Console → Authentication → Users,
+và Email/Password provider phải bật. Đăng nhập thành công in User UID để đối chiếu với ownerUid của tài liệu cửa hàng.
+UID tài khoản Authentication khác UID thẻ RFID: tài khoản cấp quyền đọc, UID thẻ chọn cửa hàng.
+Nếu lỗi trước thông báo đăng nhập thành công, chương trình chưa mở COM hoặc tra thẻ; sửa đăng nhập/mạng trước.
+INVALID_LOGIN_CREDENTIALS: kiểm tra tài khoản project này và mật khẩu; API_KEY_INVALID: kiểm tra API key Web;
+OPERATION_NOT_ALLOWED: bật Email/Password. Không chia sẻ mật khẩu, token hay log Wi-Fi để chẩn đoán đăng nhập.
 FETCH STATUS SUCCESS chỉ chứng minh truy vấn Firebase đúng; không chứng minh ESP32 đã nhận hoặc kết nối.
 Sau đó chạy nhận thẻ:
 
