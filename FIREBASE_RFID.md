@@ -1,7 +1,7 @@
 # RFID → Python/Firebase → ESP32 kết nối Wi-Fi
 
-> Đây là chế độ kiểm tra cũ, có đăng nhập chủ cửa hàng. Luồng mới không yêu cầu người dùng đăng nhập:
-> xem CARD_WIFI.md (đọc cấu hình trực tiếp từ thẻ) và chọn đúng Operating mode trong menuconfig.
+> Đây là luồng chính theo yêu cầu hiện tại: UID → Python/Firebase → USB trả ba trường → ESP32 kết nối Wi-Fi.
+> Không dùng chế độ ghi/đọc Wi-Fi trên thẻ và không chạy provision_card.py.
 
 ## Phạm vi và giới hạn
 
@@ -51,7 +51,7 @@ git clone --branch firebase-rfid-usb https://github.com/TRUONGTHIHUE/PBL5_backen
 ## 2. Dữ liệu Firestore
 
 Giữ collection `stores` và các subcollection `products`. Đường dẫn sản phẩm dùng ID TÀI LIỆU: stores/{documentId}/products/..., không suy ra ID đó từ UID hoặc tên cửa hàng.
-Mỗi tài liệu cần trường string: ownerUid, rfidId, storeId, storeName, wifiSSID, wifiPassword.
+Mỗi tài liệu cần trường string: ownerUid, rfidId, storeId, wifiSSID, wifiPassword. storeName là metadata tùy chọn.
 `storeId` giữ ID ngẫu nhiên hiện tại được; Python in cả documentId và storeId, ESP32 giữ storeId để dùng sau.
 `ownerUid` đúng UID tài khoản đăng nhập. UID thẻ chuẩn hóa chữ hoa, khoảng trắng:
 
@@ -75,7 +75,9 @@ cd RFID\RFID
 idf.py -B build_firebase menuconfig
 ```
 
-PBL5 RFID transport → bật `RFID USB bridge: Firebase lookup and store Wi-Fi connection`.
+PBL5 RFID transport → Operating mode → chọn `RFID USB bridge: Firebase lookup and store Wi-Fi connection`.
+Đây là mặc định với cấu hình mới. Nếu đã dùng chế độ ghi thẻ, phải chọn lại mode này rồi build VÀ flash.
+Không bật `Show experimental card-memory modes`; không cần ghi bất kỳ dữ liệu nào lên thẻ.
 Giữ console mặc định UART0, 115200 baud trên board ESP32 thường có USB-UART; bản này không hỗ trợ console USB-JTAG/custom UART.
 Hai mục Wi-Fi legacy để trống. SSID/password thật sẽ lấy từ Firestore, không nhập vào firmware.
 Lưu, thoát:
@@ -140,9 +142,11 @@ FETCH STATUS : SUCCESS
 ESP32 STATUS : CONFIG_RECEIVED
 ESP32 STATUS : WIFI_CONNECTING
 ESP32 STATUS : WIFI_CONNECTED
+CURRENT STORE: <storeId đúng với bản ghi Firebase>
 ```
 
-WIFI_CONNECTED chỉ phát khi ESP32 nhận IP. Có cấu hình nhưng chưa có IP thì chưa thành công.
+WIFI_CONNECTED chỉ phát khi ESP32 nhận IP. Python còn kiểm tra storeId phản hồi khớp mã đã gửi;
+nếu không khớp, báo ESP32_STORE_MISMATCH và không xác nhận thành công. Có cấu hình nhưng chưa có IP thì chưa thành công.
 Khi đang xử lý, thẻ khác báo BUSY_RESCAN_AFTER_RESULT: chờ kết quả, lấy thẻ ra rồi quét lại. Không tự động chuyển thẻ giữa chừng.
 Khi đổi cửa hàng, ESP32 dừng kết nối cũ và thử cấu hình mới một lần; không tự quay lại Wi-Fi cũ hoặc retry vô hạn.
 Nếu mất mạng sau khi đã kết nối, ESP32 xóa mã cửa hàng đang có kết nối; cần quét lại để thử kết nối mới.

@@ -1,5 +1,8 @@
 # Luồng mới: chạm thẻ → ESP32 đọc Wi-Fi → kết nối
 
+> Tài liệu thử nghiệm được giữ lại; KHÔNG phải luồng yêu cầu hiện tại. Dùng FIREBASE_RFID.md cho UID → Python/Firebase → ESP32.
+> Chỉ khi muốn thử lại riêng: bật Show experimental card-memory modes để hiện các lựa chọn ở dưới.
+
 ## Ai phải nhập gì?
 
 - **Người thiết lập/chủ cửa hàng** ghi thẻ một lần: chọn UID mục tiêu, storeId, SSID và mật khẩu Wi-Fi thật.

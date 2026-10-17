@@ -1,15 +1,26 @@
-# PBL5 — RFID và Wi-Fi cửa hàng
+# PBL5 — RFID → Python/Firebase → ESP32 Wi-Fi
 
-Luồng mới cho người dùng: **chạm thẻ MIFARE 1K → ESP32 đọc storeId/SSID/password trên thẻ → kết nối Wi-Fi**.
-Người sử dụng không nhập email/mật khẩu Firebase và không chạy Python. Người thiết lập ghi thẻ một lần bằng USB.
+Luồng sử dụng theo yêu cầu hiện tại:
 
-Đọc **[CARD_WIFI.md](CARD_WIFI.md)** để nạp chế độ ghi, chuẩn bị thẻ dự phòng, rồi nạp chế độ người dùng.
-Không dùng thẻ ngân hàng/ra vào/thẻ có dữ liệu cần giữ. Chỉ dùng MIFARE 1K có quyền đọc/ghi với Key A mặc định cho demo.
-Không ghi block UID hoặc sector trailer. MIFARE Classic với khóa mặc định không bảo vệ mật khẩu cho sản phẩm thật.
+```text
+RC522 đọc UID → ESP32 gửi USB/UART → Python tra Firestore
+→ trả storeId + wifiSSID + wifiPassword → ESP32 cấu hình Wi-Fi
+→ nhận IP → xác nhận WIFI_CONNECTED và giữ đúng storeId
+```
 
-Website vẫn ở `firebase/`. Phần sản phẩm, YOLO, TTS và thông báo giọng nói chưa tích hợp trong luồng này.
-Quyền người mua truy xuất sản phẩm Firebase sẽ cần thiết kế riêng, không dùng tài khoản chủ cửa hàng trên thiết bị người dùng.
+Thẻ chỉ nhận diện cửa hàng. Không ghi dữ liệu Wi-Fi vào thẻ ở luồng này.
+Python tra dữ liệu; chỉ ESP32 thực hiện kết nối mạng Wi-Fi cửa hàng.
+Máy tính cần Internet sẵn để tra Firebase.
 
-Các chế độ Python–Firebase–USB và Render cũ được giữ trong menu để kiểm tra tương thích; không phải luồng dùng hằng ngày.
-Hướng dẫn cũ ở [FIREBASE_RFID.md](FIREBASE_RFID.md), giao thức cũ ở [SERIAL_PROTOCOL.md](SERIAL_PROTOCOL.md).
-Kết quả kiểm tra và giới hạn thực tế: [BUILD_VALIDATION.md](BUILD_VALIDATION.md).
+- **Cách chạy COM5, cấu hình Firestore và lỗi:** [FIREBASE_RFID.md](FIREBASE_RFID.md).
+- **JSON hai chiều, timeout và đối chiếu storeId:** [SERIAL_PROTOCOL.md](SERIAL_PROTOCOL.md).
+- **Kết quả build/kiểm thử thực tế và các bước chưa xác minh:** [BUILD_VALIDATION.md](BUILD_VALIDATION.md).
+
+File chính: `RFID/RFID/main/main.c`, `firebase_bridge.c`, `Kconfig.projbuild`, `firebase_rfid.py`.
+Chọn Operating mode **RFID USB bridge: Firebase lookup and store Wi-Fi connection** trong menuconfig;
+đây cũng là mặc định của cấu hình mới. Không chạy Serial Monitor cùng Python trên COM5.
+
+Website trong `firebase/`, Rules, Excel và API PHP/Render/CSV được giữ nguyên.
+Các chế độ card-memory thử nghiệm được giữ để không xóa mã cũ nhưng ẩn sau tùy chọn riêng, không dùng cho yêu cầu này.
+Không chạy provision_card.py, không cần ghi thẻ, không thay chân RC522.
+Firebase vẫn yêu cầu xác thực: bản demo dùng tài khoản có ownerUid phù hợp. Không nhúng tài khoản chủ cửa hàng lên ESP32.

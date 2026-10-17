@@ -214,11 +214,9 @@ static void __attribute__((unused)) process_line(char *line)
     }
     if (strcmp(type, "store_config") != 0) goto cleanup;
     const char *store = string_field(json, "storeId");
-    const char *name = string_field(json, "storeName");
     const char *ssid = string_field(json, "wifiSSID");
     const char *password = string_field(json, "wifiPassword");
-    if (!valid_text(store, 1, 128) || !valid_text(name, 1, 600) ||
-        !valid_text(ssid, 1, 32) || !valid_password(password)) {
+    if (!valid_text(store, 1, 128) || !valid_text(ssid, 1, 32) || !valid_password(password)) {
         complete(id, uid, "INVALID_CONFIG", NULL);
         goto cleanup;
     }

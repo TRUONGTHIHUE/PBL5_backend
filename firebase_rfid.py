@@ -46,7 +46,7 @@ def text_bytes(value, field, minimum, maximum):
 
 
 def validate_store(store):
-    for field, maximum in (("storeId", 128), ("storeName", 600), ("wifiSSID", 32)):
+    for field, maximum in (("storeId", 128), ("wifiSSID", 32)):
         text_bytes(store.get(field), field, 1, maximum)
     password = text_bytes(store.get("wifiPassword"), "wifiPassword", 0, 64)
     length = len(password.encode("utf-8"))
@@ -144,8 +144,8 @@ class FirebaseClient:
         result = {k: fields.get(k, {}).get("stringValue")
                   for k in ("storeId", "storeName", "wifiSSID", "rfidId", "wifiPassword")}
         if any(not isinstance(result[k], str) or not result[k].strip()
-               for k in ("storeId", "storeName", "wifiSSID")) or not isinstance(result["wifiPassword"], str):
-            raise ValueError("MISSING_FIELDS: thiếu storeId, storeName, wifiSSID hoặc wifiPassword")
+               for k in ("storeId", "wifiSSID")) or not isinstance(result["wifiPassword"], str):
+            raise ValueError("MISSING_FIELDS: thiếu storeId, wifiSSID hoặc wifiPassword")
         result["documentId"] = docs[0]["name"].rsplit("/", 1)[-1]
         return validate_store(result)
 
@@ -158,8 +158,8 @@ def show_store(uid, store):
         print(f"{label:15}: {store[field]}")
     print("========================================", flush=True)
     print(f"RFID UID     : {uid}")
-    print(f"DOCUMENT ID  : {store['documentId']}")
-    print(f"STORE NAME   : {store['storeName']}")
+    if store.get('documentId'):
+        print(f"DOCUMENT ID  : {store['documentId']}")
     print("DATA SOURCE  : Firebase Firestore\nFETCH STATUS : SUCCESS", flush=True)
 
 
@@ -236,8 +236,8 @@ class SerialBridge:
                 return
             show_store(uid, store)
             self.send({**base, "type": "store_config", **{
-                field: store[field] for field in ("storeId", "storeName", "wifiSSID", "wifiPassword")}})
-            self.pending.update(deadline=self.clock() + 8, state="WAIT_ACK")
+                field: store[field] for field in ("storeId", "wifiSSID", "wifiPassword")}})
+            self.pending.update(deadline=self.clock() + 8, state="WAIT_ACK", storeId=store['storeId'])
             print("Đã gửi cấu hình qua USB. Chưa xác nhận ESP32 nhận hoặc kết nối Wi-Fi.", flush=True)
             return
         if kind != "status" or not self.pending:
@@ -247,7 +247,13 @@ class SerialBridge:
         status = message.get("status")
         if status not in FINAL_STATUSES | {"CONFIG_RECEIVED", "WIFI_CONNECTING"}:
             return
+        if status in {"CONFIG_RECEIVED", "WIFI_CONNECTING", "WIFI_CONNECTED"} and (
+                message.get("storeId") != self.pending.get("storeId") or "storeId" not in self.pending):
+            print("ESP32_STORE_MISMATCH: phản hồi không khớp storeId đã gửi; chưa xác nhận thành công.", flush=True)
+            return
         print("ESP32 STATUS : " + status, flush=True)
+        if status == "WIFI_CONNECTED":
+            print("CURRENT STORE: " + self.pending['storeId'], flush=True)
         if status in FINAL_STATUSES:
             self.pending = None
         elif status == "CONFIG_RECEIVED":

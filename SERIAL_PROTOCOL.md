@@ -16,10 +16,12 @@ ESP32 phát khi đọc thẻ (ví dụ UID, không phải credential):
 ESP32 chỉ chấp nhận cấu hình cùng requestId và uid trong thời hạn tra cứu 60s.
 Python query Firestore với `ownerUid == UID_đăng_nhập` AND `rfidId == UID_thẻ`, limit 2 để phát hiện trùng.
 
-Python trả `type=store_config`, v=1, requestId, uid và đủ bốn trường string:
-storeId, storeName, wifiSSID, wifiPassword. Không có giá trị thật trong tài liệu này.
+Python trả `type=store_config`, v=1, requestId, uid và đúng ba trường cấu hình string:
+storeId, wifiSSID, wifiPassword. Không yêu cầu hoặc gửi storeName.
+v/type/requestId/uid là phần bao giao thức, không phải thông tin cấu hình cửa hàng.
+Không có giá trị thật trong tài liệu này.
 Thiếu trường, kiểu sai, ký tự điều khiển, password/SSID vượt giới hạn: INVALID_CONFIG.
-SSID 1–32 byte UTF-8, storeId 1–128 byte, storeName 1–600 byte.
+SSID 1–32 byte UTF-8, storeId 1–128 byte.
 Password 8–63 byte hoặc 64 hex; chuỗi rỗng có nghĩa mạng mở; thiếu trường không có nghĩa mạng mở.
 Chuỗi chứa NUL không được chấp nhận. Không lấy SSID/password từ bảng demo trong firmware.
 
@@ -43,6 +45,8 @@ Status từ firmware không chứa password/SSID. Theo yêu cầu bản demo, Py
 từ dữ liệu Firestore đã kiểm tra trước khi gửi store_config. Không lưu/chia sẻ log này công khai.
 Python chờ ACK 8s sau gửi, sau ACK chờ kết quả 35s (gồm dừng/khởi động Wi-Fi).
 Không coi FETCH SUCCESS hay CONFIG_RECEIVED là WIFI_CONNECTED.
+Python kiểm tra storeId trong CONFIG_RECEIVED/WIFI_CONNECTING/WIFI_CONNECTED khớp mã đã gửi.
+Khác/thiếu storeId → ESP32_STORE_MISMATCH; không in CURRENT STORE hoặc chấp nhận kết nối thành công.
 
 Quét lúc đang chờ/kết nối: ESP32 phát type=busy/status=BUSY_RESCAN_AFTER_RESULT.
 Yêu cầu đang làm không bị thay thế. Người dùng đợi kết quả, lấy thẻ ra rồi quét lại.

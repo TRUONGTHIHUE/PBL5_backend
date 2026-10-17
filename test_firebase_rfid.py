@@ -114,7 +114,7 @@ class ProtocolTests(unittest.TestCase):
 
     def status(self, status, request_id=None):
         self.bridge.handle({'v': 1, 'type': 'status', 'requestId': request_id or self.request_id,
-                            'uid': self.uid, 'status': status})
+                            'uid': self.uid, 'status': status, 'storeId': self.store['storeId']})
 
     def test_partial_serial_and_noise(self):
         decoder = LineDecoder()
@@ -140,6 +140,7 @@ class ProtocolTests(unittest.TestCase):
         packet = json.loads(sent[5:])
         self.assertEqual(packet['type'], 'store_config')
         self.assertEqual(packet['wifiPassword'], self.store['wifiPassword'])
+        self.assertEqual(set(packet), {'v', 'type', 'requestId', 'uid', 'storeId', 'wifiSSID', 'wifiPassword'})
         self.assertTrue(sent.endswith(b'\n'))
         self.assertNotIn('WIFI_CONNECTED', self.output.getvalue())
         self.assertIn('Wi-Fi Password : ' + self.store['wifiPassword'], self.output.getvalue())
@@ -222,7 +223,8 @@ class ProtocolTests(unittest.TestCase):
             self.assertEqual(packet['storeId'], records[uid]['storeId'])
             self.assertEqual(packet['wifiSSID'], records[uid]['wifiSSID'])
             self.bridge.handle({'v': 1, 'type': 'status', 'uid': uid,
-                                'requestId': request_id, 'status': 'WIFI_CONNECTED'})
+                                'requestId': request_id, 'status': 'WIFI_CONNECTED',
+                                'storeId': records[uid]['storeId']})
         self.assertIn('Wi-Fi Password : ' + self.store['wifiPassword'], self.output.getvalue())
 
     def test_missing_fields_does_not_print_or_send_credentials(self):
@@ -256,6 +258,23 @@ class ProtocolTests(unittest.TestCase):
         self.assertIn('Wi-Fi SSID     : different-network', output)
         self.assertIn('Wi-Fi Password : different-demo-password', output)
         self.assertNotIn(self.store['wifiPassword'], output)
+
+    def test_only_three_config_fields_required(self):
+        self.client.lookup.return_value = {key: self.store[key] for key in ('storeId', 'wifiSSID', 'wifiPassword')}
+        self.bridge.handle(self.scan)
+        packet = json.loads(self.device.write.call_args.args[0][5:])
+        self.assertEqual(packet['storeId'], self.store['storeId'])
+        self.assertNotIn('storeName', packet)
+        self.status('WIFI_CONNECTED')
+        self.assertIn('CURRENT STORE: ' + self.store['storeId'], self.output.getvalue())
+
+    def test_wrong_store_cannot_be_reported_as_connected(self):
+        self.bridge.handle(self.scan)
+        self.bridge.handle({'v': 1, 'type': 'status', 'requestId': self.request_id,
+                            'uid': self.uid, 'status': 'WIFI_CONNECTED', 'storeId': 'different-store'})
+        self.assertIsNotNone(self.bridge.pending)
+        self.assertIn('ESP32_STORE_MISMATCH', self.output.getvalue())
+        self.assertNotIn('CURRENT STORE:', self.output.getvalue())
 
 
 if __name__ == '__main__':
